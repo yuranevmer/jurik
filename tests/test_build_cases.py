@@ -12,7 +12,7 @@ from jurik.config import Code
 from jurik.model import Article, DocTree, Edition, Unit
 from jurik.render import render
 from jurik.verify import verify_paragraphs
-from jurik.zakon.paragraphs import Para, extract_paragraphs, match_heading
+from jurik.zakon.paragraphs import Para, extract_paragraphs, match_heading, normalize_text
 from jurik.zakon.tree import build_tree
 
 FIX = Path(__file__).parent / "fixtures" / "zakon"
@@ -21,6 +21,7 @@ CUSTOMS = "4495-17_ed20260917_build_fragment.html"
 LAND = "2768-14_ed20261016_build_fragment.html"
 LABOUR = "322-08_ed19960723_build_fragment.html"
 ADMIN_PROCEDURE = "2747-15_ed20170101_build_fragment.html"
+CRIMINAL = "2341-14_ed20260918_build_fragment.html"
 
 
 def paras_of(name: str) -> list[Para]:
@@ -186,3 +187,21 @@ def test_repeated_article_number_after_other_article_still_fails():
     b = Para("Стаття 2. Б", "article_start", "", number="2", title="Б")
     with pytest.raises(ValueError, match="duplicate article 1"):
         tree_of([a, b, a], "x")
+
+
+def test_criminal_two_level_article_index():
+    # КК «Стаття 96 - 10-1 .» was glued to the end of article 96-10
+    paras = paras_of(CRIMINAL)
+    tree = tree_of(paras, "2341-14")
+    numbers = [a.number for a in articles(tree)]
+    assert numbers == ["96-10", "96-10-1", "96-11"]
+    assert articles(tree)[1].title.startswith("Додаткові (нефінансові) заходи")
+    files = render(tree, Code("criminal", ("2341-14",), "КК"))
+    assert any(p.endswith("/art-0096-10-1.md") for p in files)
+    res = verify_paragraphs(paras, files)
+    assert res.ok, res.missing[:5]
+
+
+def test_normalize_two_level_superscript_index():
+    assert normalize_text("Стаття 96 - 10-1 . Назва") == "Стаття 96-10-1. Назва"
+    assert normalize_text("Стаття 39 - 1 . Назва") == "Стаття 39-1. Назва"

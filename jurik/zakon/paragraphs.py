@@ -52,9 +52,10 @@ class Para:
 # --- text normalisation --------------------------------------------------------
 
 _WS = re.compile(r"\s+")
-# OpenData renders a superscript index as "39 - 1 ." -> "39-1."
-_SUP_INDEX = re.compile(r"(\d+) - (\d+) \.")
-_INDEX = r"\d+(?:\s*-\s*\d+)?"
+# OpenData renders a superscript index as "39 - 1 ." -> "39-1."; a two-level index
+# (КК «Стаття 96 - 10-1 .») -> "96-10-1."
+_SUP_INDEX = re.compile(r"(\d+) - (\d+(?:-\d+)?) \.")
+_INDEX = r"\d+(?:\s*-\s*\d+){0,2}"
 
 
 def normalize_text(text: str) -> str:
