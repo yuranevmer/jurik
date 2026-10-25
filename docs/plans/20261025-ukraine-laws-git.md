@@ -390,13 +390,14 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `tests/test_render.py`, `tests/test_translit.py`
 
 - ⚠️ (Task 7) `DocTree.closing` (подпись «Президент України Л.КУЧМА» / «м. Київ, … N 2947-III», у Конституції «***» + «Конституція України прийнята …») не входит в `units`; решить, куда рендерить (напр. в `_meta.yaml`/`closing.md` или выбросить). `Unit.provisions` может идти перед статьями уровня (ЦК: «1. Загальні положення» внутри § до первой статьи); у Конституции статьи без названия (`Article.title == ""`); исключённая статья уже имеет `title="Виключена"` и готовый `body`
-- [ ] `translit.slug(text, max_len=40)`: транслитерация по постановлению КМУ № 55 от 27.01.2010, нижний регистр, не-буквы → `-`, обрезка по границе слова; `translit.roman_to_int`
-- [ ] `render(tree, slug) -> dict[path, bytes]`: пути по правилам раскладки (`NN-slug/` из номера уровня с индексом, `art-NNNN.md`, `art-NNNN-M.md`, `provisions.md`, `preamble.md`, `_meta.yaml`); для кодекса из двух zakon_id (КУпАП) рендер объединяет два дерева в одну папку
-- [ ] содержимое статьи: `# Стаття N. Назва`, пустая строка, абзацы через пустую строку, файл заканчивается `\n`; `provisions.md` начинается заголовком уровня
-- [ ] `_meta.yaml`: title, zakon_id(s), adopted, source_url, status, edition_date
-- [ ] `render` детерминирован: один и тот же tree → побайтно одинаковые файлы
-- [ ] write tests: пути для статей 1, 39-1, 1000, 1308; `Глава 1-1` → `01-1-...`; `Розділ XIV` → `14-...`; slug с апострофом и длинным названием; `provisions.md`; детерминизм; `_meta.yaml` парсится обратно; КУпАП две части в одной папке
-- [ ] run tests - must pass before next task
+- [x] `translit.slug(text, max_len=40)`: транслитерация по постановлению КМУ № 55 от 27.01.2010, нижний регистр, не-буквы → `-`, обрезка по границе слова; `translit.roman_to_int`
+- [x] `render(tree, slug) -> dict[path, bytes]`: пути по правилам раскладки (`NN-slug/` из номера уровня с индексом, `art-NNNN.md`, `art-NNNN-M.md`, `provisions.md`, `preamble.md`, `_meta.yaml`); для кодекса из двух zakon_id (КУпАП) рендер объединяет два дерева в одну папку
+- [x] содержимое статьи: `# Стаття N. Назва`, пустая строка, абзацы через пустую строку, файл заканчивается `\n`; `provisions.md` начинается заголовком уровня
+- [x] `_meta.yaml`: title, zakon_id(s), adopted, source_url, status, edition_date
+- [x] `render` детерминирован: один и тот же tree → побайтно одинаковые файлы
+- [x] write tests: пути для статей 1, 39-1, 1000, 1308; `Глава 1-1` → `01-1-...`; `Розділ XIV` → `14-...`; slug с апострофом и длинным названием; `provisions.md`; детерминизм; `_meta.yaml` парсится обратно; КУпАП две части в одной папке
+- [x] run tests - must pass before next task
+- ✅ итог (Task 8): `jurik/translit.py`: `transliterate`, `slug(text, max_len=40)` (апострофы `'’ʼ` выбрасываются без разрыва слова, «зг» → `zgh`, `є/ї/й/ю/я` в начале слова → `ye/yi/y/yu/ya`), `roman_to_int` (`ValueError` на невалидном). `jurik/render.py`: `render(trees: DocTree | Sequence[DocTree], code: Code, *, adopted=None, status="in_force") -> dict[str, bytes]` (принимает `Code` из реестра, а не slug: нужен title для `_meta.yaml`; `adopted` = `CardInfo.adopted`). Пути от корня репозитория: `codes/<slug>/...`, словарь отсортирован по пути. Папка уровня `NN[-idx]-<slug(title)>` (без title → `NN`). `provisions.md` = `# <Розділ|Підрозділ|Глава|§|Книга> N. TITLE` + текст (у `part` с «частина» в названии = `# TITLE`); заголовки уровней без provisions нигде не рендерятся. `DocTree.closing` → `codes/<slug>/closing.md`; `preamble.md` только если преамбула непуста. Несколько деревьев (КУпАП): preamble/closing объединяются без дублей, `_meta.yaml` с `zakon_id`/`source_url` списками и `edition_date` = max; совпадение пути файла → `RenderError`. `RenderError`/`ValueError` на номер, не разбираемый как арабский/римский
 
 ### Task 9: Инвариант полноты текста
 
@@ -406,6 +407,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 
 - ⚠️ (Task 6) текст абзацев уже нормализован `paragraphs.normalize_text` (пробелы, `39 - 1 .` → `39-1.`); сторону html для сравнения брать из `extract_paragraphs` (kind `body`/`heading`/`article_start`), а не из сырого HTML, иначе разойдутся склеенные индексы; `header` и `note` не считаются
 - ⚠️ (Task 7) `build_tree` выбрасывает `header` (шапка: название, «(Відомості …)», `[ image ]`) и `note`; подпись уходит в `DocTree.closing` — проверка полноты должна сравнивать с html без header-абзацев и учитывать closing так, как решит Task 8. Исключённая статья получает синтетический текст «Виключена на підставі …» (из примечания) → эти слова будут `extra`, если примечания вырезаются из html
+- ⚠️ (Task 8) в рендере есть слова, которых нет в теле html-текста как абзацев, и наоборот: заголовки уровней попадают в файлы только через `provisions.md` (`# Розділ XV. TITLE`), названия уровней без provisions живут лишь в именах папок; `header` (название документа, шапка) не рендерится; подпись = `closing.md`. Сравнивать слова с учётом этого (напр. сравнивать с тем же набором абзацев, что попал в дерево, или исключать заголовки уровней с обеих сторон)
 - [ ] `normalize_words(text) -> list[str]`: убрать примечания `{...}`, пунктуацию, регистр; одна функция и для html-текста, и для markdown
 - [ ] `verify_edition(files, html) -> VerifyResult`: сначала сравнение мультимножеств слов (быстро), при расхождении поиск по статьям/единицам, чтобы назвать конкретный файл; `missing`, `extra`, первые 5 расхождений с контекстом; на Податковому укладывается в секунды, не минуты
 - [ ] `jurik parse [--all]` запускает проверку и печатает результат; расхождения пишутся в `report/parse-failures.md`
@@ -448,6 +450,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `jurik/build/__init__.py`, `jurik/build/changeset.py`, `jurik/build/fastimport.py`, `jurik/build/history.py`, `jurik/build/message.py`
 - Create: `tests/test_changeset.py`, `tests/test_fastimport.py`, `tests/test_history.py`, `tests/test_message.py`
 
+- ⚠️ (Task 8) `render(trees, code, adopted=..., status=...)` уже отдаёт пути от корня репозитория (`codes/<slug>/...`), для КУпАП передавать список из двух деревьев (последние редакции каждой части на дату); repealed = удалить все пути с префиксом `codes/<slug>/`
 - [ ] `changeset.diff(prev_files, new_files) -> ChangeSet(modified: dict[path, bytes], deleted: set[path])`
 - [ ] `fastimport.py`: `Stream` с дедупликацией blob'ов по sha256 (mark на содержимое), `commit(ref, parents, author, committer, message, changeset)`; `run(stream, repo_path)` создаёт репозиторий и прогоняет `git fast-import`; timestamp через `zoneinfo("Europe/Kyiv")` 12:00
 - [ ] `history.plan_linear(editions_by_code, trees) -> list[Step]`: сортировка по `(date, bases)`, объединение шагов с одинаковыми `(date, bases)` между кодексами; КУпАП: состояние папки = объединение последних редакций обеих частей; шаг утраты силы кодекса (`Reason: repealed`, удаление папки)
