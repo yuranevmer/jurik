@@ -21,6 +21,7 @@ class Edition:
     kind: EditionKind
     url: str
     future: bool = False
+    comment: str = ""  # condition of a conditional edition ("через 6 місяців з дня ...")
 
 
 @dataclass

@@ -326,16 +326,17 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `tests/fixtures/zakon/2755-17_card.html`, `tests/fixtures/zakon/2947-14_card.html`, `tests/fixtures/zakon/254k_96-vr_card.html` (+ фрагменты из Task 2)
 - Create: `tests/test_zakon_card.py`
 
-- [ ] `parse_card(html, zakon_id) -> CardInfo(title, adopted, status, editions: list[Edition])`: из блока истории выдернуть все `ed<YYYYMMDD>` с датой, типом («перша редакція», «Редакція, підстава - N, M»), списком підстав; нормализовать номера законов в вид `2856-VI`; `kind` = `court` для `18-рп/2011`-подобных, `law` для законов, `other` для остального
-- [ ] редакции с датой в будущем помечаются `future=True`
+- [x] `parse_card(html, zakon_id) -> CardInfo(title, adopted, status, editions: list[Edition])`: из блока истории выдернуть все `ed<YYYYMMDD>` с датой, типом («перша редакція», «Редакція, підстава - N, M»), списком підстав; нормализовать номера законов в вид `2856-VI`; `kind` = `court` для `18-рп/2011`-подобных, `law` для законов, `other` для остального
+- [x] редакции с датой в будущем помечаются `future=True`
 - ⚠️ (Task 3) источник = OpenData API: карточка приходит JSON (`ZakonClient.card()` → `card.json.gz`, поля `eds[]{datred, pidstava (nreg через запятую), comment}`, `nazva`, `orgdat`, `status`), поэтому `parse_card` разбирает JSON (фикстура `card-family.json`, добавить JSON-карточки Податкового и Конституції), HTML-фикстуры zakon остаются как сверка. Підстави уже в виде nreg
 - ⚠️ (Task 2) підстава-КСУ на карточке выглядит как zakon id решения `v020p710-10` (href `/laws/show/v020p710-10`), а не `18-рп/2011`; `kind=court` определять по `^v\w+p710-\d\d$`. События «Визнання неконституційними…», «Тлумачення» без ссылки `ed…` редакций не дают
 - ⚠️ (Task 2) условные редакции без даты: под заголовком «пізніше», дата текстом, ссылка `ed30000101`/`ed30000102` (в JSON `datred=30000101`) → `future=True`. Текущая редакция ссылки на `ed…` не имеет (метка «відкрито зараз»), её дату брать из строки
 - ⚠️ (Task 2) номер закона нормализовать в nreg из href (`4834-17`), а не в отображаемый `4834-VI`: суффикс `VIII` неоднозначен (`322-08` 1971 vs `-19` 2014), III созыв бывает `-XIV` и `-III`; бывают буквенные суффиксы `2147<sup>а</sup>-VIII` → `2147а-19`. Отображаемый номер хранить отдельно для сообщений
 - ⚠️ (Task 2) фикстуры уже есть: `tests/fixtures/zakon/card-{tax,constitution,family,labour}.html`. Актуальные числа: Сімейний 63 ссылки-редакции (62 датированные + 1 условная), Конституція 10, Податковий 242, КЗпП 147 (из них 2 условные). У КЗпП первая редакция ed19960723 с підставою 256/96-ВР, у Житлового ed19840101 «Введення в дію» с підставою 5465-X и ed19930101 без підстави
-- [ ] write tests на фикстурах: количество редакций (Податковий ≥ 200, Сімейний 62, Конституція 9), первая редакция с `bases=[]`, одна підстава, несколько підстав, підстава-КСУ, два этапа одного закона дают две `Edition` с одинаковым `bases`, future-редакция, порядок по дате
-- [ ] write tests на ошибки: карточка без блока истории → `CardParseError`
-- [ ] run tests - must pass before next task
+- [x] write tests на фикстурах: количество редакций (Податковий ≥ 200, Сімейний 62, Конституція 9), первая редакция с `bases=[]`, одна підстава, несколько підстав, підстава-КСУ, два этапа одного закона дают две `Edition` с одинаковым `bases`, future-редакция, порядок по дате
+- [x] write tests на ошибки: карточка без блока истории → `CardParseError`
+- [x] run tests - must pass before next task
+- ✅ итог (Task 4): `jurik/zakon/card.py` разбирает JSON-карточку OpenData: `parse_card(text, zakon_id, today=None) -> CardInfo(zakon_id, title, number=orgnum, adopted=orgdat, status=текст по справочнику `stan`, editions)`. `Edition.bases` = nreg в нижнем регистре (`4834-17`, `256/96-вр`, `v020p710-10`); `display_number(nreg)` даёт отображаемый номер best-effort (`4834-VI`) только для сообщений. `kind`: `law`/`court`, если все підстави такого вида, иначе `other` (в т.ч. пустые). В `Edition` добавлено поле `comment` (условие условной редакции). Фактические числа: Податковий 242 (ed20261101 future на 2026-10-25), Сімейний 63 (62 + условная), Конституція 10, КЗпП 147 (3 future). Фикстуры: `card-{tax,constitution,labour}.json` рядом с HTML; HTML-карточка Сімейного используется как сверка дат
 
 ### Task 5: Команда `jurik fetch`
 
@@ -343,6 +344,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Modify: `jurik/cli.py`
 - Create: `jurik/zakon/fetch.py`, `tests/test_fetch.py`
 
+- ⚠️ (Task 4) карточка: `parse_card(client.card(zakon_id), zakon_id)` из `jurik.zakon.card`; качать `CardInfo.current()` (не future); дата редакции для `client.edition()` = `ed.date.strftime('%Y%m%d')`; ошибка карточки = `CardParseError`
 - [ ] `fetch_code(code, client)`: скачать карточку, распарсить, скачать все не-будущие редакции всех zakon_id кодекса; прогресс в stdout; ошибки по одной редакции не останавливают остальные, собираются в итог
 - [ ] `jurik fetch [--code SLUG] [--refetch]`
 - ⚠️ (Task 3) использовать `ZakonClient(cache, refetch=...)` из `jurik/zakon/http.py`: `client.card(id)`, `client.edition(id, "YYYYMMDD")`, `client.edition_path(...)`/`is_cached(...)` для проверки кеша; ошибки = `ZakonError`
