@@ -10,6 +10,7 @@ import yaml
 from jurik.config import Code
 from jurik.model import Article, DocTree, Unit
 from jurik.translit import roman_to_int, slug
+from jurik.zakon.paragraphs import ORDINALS
 
 SOURCE_URL = "https://zakon.rada.gov.ua/laws/show/{}"
 
@@ -21,6 +22,10 @@ UNIT_LABEL = {
     "chapter": "Глава",
     "paragraph": "§",
 }
+
+
+# "1" -> "перша": the book heading keeps the ordinal word of the source text
+BOOK_ORDINAL = {str(n): word for word, n in reversed(ORDINALS.items())}
 
 
 class RenderError(ValueError):
@@ -59,7 +64,8 @@ def unit_heading(unit: Unit) -> str:
     title = unit.title.strip()
     if unit.kind == "part" and "частина" in title.lower():
         return f"# {title}"
-    head = f"{UNIT_LABEL[unit.kind]} {unit.number}"
+    number = BOOK_ORDINAL.get(unit.number, unit.number) if unit.kind == "book" else unit.number
+    head = f"{UNIT_LABEL[unit.kind]} {number}"
     return f"# {head}. {title}" if title else f"# {head}"
 
 
@@ -87,9 +93,22 @@ def _render_items(items: list[Unit | Article], base: str, files: dict[str, bytes
             _put(files, f"{base}/{article_file(item.number)}", article_text(item))
             continue
         path = f"{base}/{unit_dir(item)}"
-        if item.provisions.strip():
-            _put(files, f"{path}/provisions.md", _doc(unit_heading(item), item.provisions))
+        _put_level(files, f"{path}/provisions.md", unit_heading(item), item.provisions)
         _render_items(item.children, path, files)
+
+
+def _put_level(files: dict[str, bytes], path: str, heading: str, provisions: str) -> None:
+    """Every level gets ``provisions.md``: its heading, then the level text (if any).
+
+    A level present in two merged documents (КУпАП) yields the same heading twice; a
+    heading-only file then gives way to the one with text, two texts are a conflict.
+    """
+    content = _doc(heading, provisions)
+    old = files.get(path)
+    if old is None or old == _doc(heading):
+        files[path] = content
+    elif content != _doc(heading) and content != old:
+        raise RenderError(f"duplicate path {path}")
 
 
 def _joined(texts: list[str]) -> str:
@@ -125,7 +144,9 @@ def render(
 ) -> dict[str, bytes]:
     """Render one code (one or several zakon documents) to {repo path: content}.
 
-    Paths are relative to the repository root (``codes/<slug>/...``). Several trees
+    Paths are relative to the repository root (``codes/<slug>/...``). Every structural
+    level has a ``provisions.md`` starting with its heading, so the level title survives
+    even when the level holds only articles. Several trees
     (КУпАП) are merged into one folder; a file produced by two trees → ``RenderError``.
     """
     trees = [trees] if isinstance(trees, DocTree) else list(trees)

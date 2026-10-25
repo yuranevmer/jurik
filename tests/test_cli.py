@@ -5,7 +5,7 @@ from jurik.cli import main
 
 
 @pytest.mark.parametrize(
-    "cmd", [["rada"], ["parse"], ["build"], ["report"], ["export", "--out", "x"]]
+    "cmd", [["rada"], ["build"], ["report"], ["export", "--out", "x"]]
 )
 def test_stub_commands_exist(cmd):
     result = CliRunner().invoke(main, cmd)

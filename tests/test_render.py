@@ -181,9 +181,12 @@ def test_tax_subsection_provisions():
     assert "codes/tax/01-zahalni-polozhennia/art-0039-1.md" in files
     prov = [p for p in files if p.startswith("codes/tax/20-") and p.endswith("provisions.md")]
     assert prov == [
-        "codes/tax/20-perekhidni-polozhennia/01-osoblyvosti-spravliannia-podatku-na/provisions.md"
+        "codes/tax/20-perekhidni-polozhennia/01-osoblyvosti-spravliannia-podatku-na/provisions.md",
+        "codes/tax/20-perekhidni-polozhennia/provisions.md",
     ]
     assert text(files, prov[0]).startswith("# Підрозділ 1. Особливості справляння")
+    # розділ XX has only subsections: provisions.md holds just its heading
+    assert text(files, prov[1]) == "# Розділ XX. ПЕРЕХІДНІ ПОЛОЖЕННЯ\n"
     assert any(
         p.startswith("codes/tax/14-spetsialni-podatkovi-rezhymy/01-sproshchena-") for p in files
     )
@@ -192,9 +195,29 @@ def test_tax_subsection_provisions():
 def test_civil_paragraph_provisions_before_articles():
     files = render(fixture_tree("435-15_print_fragment.html", "435-15"), code("civil", "435-15"))
     prov = [p for p in files if p.endswith("provisions.md")]
-    assert len(prov) == 1
-    assert "/01-hospodarski-tovarystva/" in prov[0]
-    assert text(files, prov[0]).startswith("# § 1. Господарські товариства\n\n1. Загальні")
+    with_text = [p for p in prov if "\n\n" in text(files, p)]
+    assert len(with_text) == 1
+    assert "/01-hospodarski-tovarystva/" in with_text[0]
+    assert text(files, with_text[0]).startswith("# § 1. Господарські товариства\n\n1. Загальні")
+    book = text(files, "codes/civil/01-zahalni-polozhennia/provisions.md")
+    assert book.startswith("# Книга перша.")
+
+
+def test_every_level_has_heading_file(family_files):
+    dirs = {p.rsplit("/", 1)[0] for p in family_files if "/art-" in p}
+    levels = {d for p in dirs for d in _ancestors(p) if d != "codes/family"}
+    for d in levels:
+        assert f"{d}/provisions.md" in family_files, d
+    chapter = text(
+        family_files,
+        "codes/family/01-zahalni-polozhennia/01-simia-rehuliuvannia-simeinykh-vidnosyn/provisions.md",
+    )
+    assert chapter.startswith("# Глава 1. ") and chapter.count("\n") == 1
+
+
+def _ancestors(path: str) -> list[str]:
+    parts = path.split("/")
+    return ["/".join(parts[:i]) for i in range(2, len(parts) + 1)]
 
 
 def test_render_is_deterministic():
@@ -231,6 +254,10 @@ def test_two_documents_render_into_one_folder():
     assert f"{base}/01-zahalni-polozhennia/art-0002.md" in files
     assert f"{base}/04-provadzhennia/art-0245.md" in files
     assert text(files, f"{base}/closing.md") == "Голова Президії\n"
+    # section I is in both documents: one heading file, no conflict
+    assert text(files, f"{base}/01-zahalni-polozhennia/provisions.md") == (
+        "# Розділ I. Загальні положення\n"
+    )
     meta = yaml.safe_load(files[f"{base}/_meta.yaml"])
     assert meta["zakon_id"] == ["80731-10", "80732-10"]
     assert meta["source_url"] == [

@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 
 from jurik.config import ConfigError, Paths, get_code, load_codes
+from jurik.parse import EditionCheck, failures_report, parse_code
 from jurik.zakon.fetch import FetchResult, fetch_code
 from jurik.zakon.http import ZakonClient
 
@@ -61,8 +62,29 @@ def rada(convocation: int | None) -> None:
 @click.option("--edition", help="Edition date YYYYMMDD.")
 @click.option("--all", "all_editions", is_flag=True, help="Parse all editions.")
 def parse(code_slug: str | None, edition: str | None, all_editions: bool) -> None:
-    """Parse editions and verify text completeness."""
-    _not_implemented("parse")
+    """Parse cached editions and verify text completeness.
+
+    Default: the latest edition of each document. Failures go to report/parse-failures.md.
+    """
+    try:
+        codes = load_codes()
+        selected = [get_code(codes, code_slug)] if code_slug else codes
+    except ConfigError as e:
+        raise click.ClickException(str(e)) from e
+    paths = Paths(Path.cwd())
+    checks: list[EditionCheck] = []
+    with make_zakon_client(paths.cache) as client:
+        for code in selected:
+            checks += parse_code(
+                code, client, edition=edition, all_editions=all_editions, echo=click.echo
+            )
+    paths.report.mkdir(parents=True, exist_ok=True)
+    report_path = paths.report / "parse-failures.md"
+    report_path.write_text(failures_report(checks), encoding="utf-8")
+    failed = sum(not c.ok for c in checks)
+    click.echo(f"{len(checks) - failed} ok, {failed} failed")
+    if failed:
+        raise click.ClickException(f"{failed} edition(s) failed, see {report_path}")
 
 
 @main.command()
