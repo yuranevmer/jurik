@@ -10,79 +10,109 @@
 #     "Кодекс України; Закон, Кодекс ... № 132/94-ВР", i.e. Кодекс України про надра.
 #   - 436-15 (Господарський кодекс) is repealed in 2025; kept for history.
 #   - 4651-17 responds gzip-compressed even without Accept-Encoding; client must decode.
+#
+# title_patterns (Task 11): regexes matched case-insensitively against bill titles (any
+# grammatical case, whitespace collapsed) to find bills about a code; see jurik/rada/match.py.
+# The optional «(та|і|й) <1-2 words>» group catches elliptic lists such as
+# «Кримінального та Кримінального процесуального кодексів», «Податкового і Митного кодексів».
 
 - slug: constitution
   zakon_id: "254к/96-ВР"
   title: Конституція України        # verified: від 28.06.1996 № 254к/96-ВР
+  title_patterns: ['конституці(я|ї|ю|єю)\s+україни']
 - slug: family
   zakon_id: "2947-14"
   title: Сімейний кодекс України     # verified: від 10.01.2002 № 2947-III
+  title_patterns: ['сімейн\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: tax
   zakon_id: "2755-17"
   title: Податковий кодекс України   # verified: від 02.12.2010 № 2755-VI
+  title_patterns: ['податков\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: admin-offences
   zakon_id: ["80731-10", "80732-10"]
   title: Кодекс України про адміністративні правопорушення  # verified: № 8073-X
+  title_patterns: ['кодекс\w*\s+україни\s+про\s+адміністративні\s+правопорушення']
 - slug: civil
   zakon_id: "435-15"
   title: Цивільний кодекс України    # verified: від 16.01.2003 № 435-IV
+  title_patterns: ['цивільн\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: civil-procedure
   zakon_id: "1618-15"
   title: Цивільний процесуальний кодекс України  # verified: від 18.03.2004 № 1618-IV
+  title_patterns: ['цивільн\w*\s+процесуальн\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: criminal
   zakon_id: "2341-14"
   title: Кримінальний кодекс України  # verified: від 05.04.2001 № 2341-III
+  title_patterns: ['кримінальн\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: criminal-procedure
   zakon_id: "4651-17"
   title: Кримінальний процесуальний кодекс України  # verified: від 13.04.2012 № 4651-VI
+  title_patterns: ['кримінальн\w*\s+процесуальн\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: penal
   zakon_id: "1129-15"
   title: Кримінально-виконавчий кодекс України  # verified: від 11.07.2003 № 1129-IV
+  title_patterns: ['кримінально-виконавч\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: admin-procedure
   zakon_id: "2747-15"
   title: Кодекс адміністративного судочинства України  # verified: від 06.07.2005 № 2747-IV
+  title_patterns: ['кодекс\w*\s+адміністративного\s+судочинства']
 - slug: commercial-procedure
   zakon_id: "1798-12"
   title: Господарський процесуальний кодекс України  # verified: від 06.11.1991 № 1798-XII
+  title_patterns: ['господарськ\w*\s+процесуальн\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: customs
   zakon_id: "4495-17"
   title: Митний кодекс України       # verified: від 13.03.2012 № 4495-VI
+  title_patterns: ['митн\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: budget
   zakon_id: "2456-17"
   title: Бюджетний кодекс України    # verified: від 08.07.2010 № 2456-VI
+  title_patterns: ['бюджетн\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: labour
   zakon_id: "322-08"
   title: Кодекс законів про працю України  # verified: від 10.12.1971 № 322-VIII
+  title_patterns: ['кодекс\w*\s+законів\s+про\s+працю']
 - slug: land
   zakon_id: "2768-14"
   title: Земельний кодекс України    # verified: від 25.10.2001 № 2768-III
+  title_patterns: ['земельн\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: housing
   zakon_id: "5464-10"
   title: Житловий кодекс України     # verified: від 30.06.1983 № 5464-X
+  title_patterns: ['житлов\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: water
   zakon_id: "213/95-ВР"
   title: Водний кодекс України       # verified: від 06.06.1995 № 213/95-ВР
+  title_patterns: ['водн\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: forest
   zakon_id: "3852-12"
   title: Лісовий кодекс України      # verified: від 21.01.1994 № 3852-XII
+  title_patterns: ['лісов\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: subsoil
   zakon_id: "132/94-ВР"
   title: Кодекс України про надра    # verified: "Про надра" від 27.07.1994 № 132/94-ВР
+  title_patterns: ['кодекс\w*\s+україни\s+про\s+надра']
 - slug: air
   zakon_id: "3393-17"
   title: Повітряний кодекс України   # verified: від 19.05.2011 № 3393-VI
+  title_patterns: ['повітрян\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: merchant-shipping
   zakon_id: "176/95-ВР"
   title: Кодекс торговельного мореплавства України  # verified: від 23.05.1995 № 176/95-ВР
+  title_patterns: ['кодекс\w*\s+торговельного\s+мореплавства']
 - slug: electoral
   zakon_id: "396-20"
   title: Виборчий кодекс України     # verified: від 19.12.2019 № 396-IX
+  title_patterns: ['виборч\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
 - slug: bankruptcy
   zakon_id: "2597-19"
   title: Кодекс України з процедур банкрутства  # verified: від 18.10.2018 № 2597-VIII
+  title_patterns: ['кодекс\w*\s+україни\s+з\s+процедур\s+банкрутства']
 - slug: civil-protection
   zakon_id: "5403-17"
   title: Кодекс цивільного захисту України  # verified: від 02.10.2012 № 5403-VI
+  title_patterns: ['кодекс\w*\s+цивільного\s+захисту']
 - slug: commercial
   zakon_id: "436-15"
   title: Господарський кодекс України  # verified: від 16.01.2003 № 436-IV (repealed 2025)
+  title_patterns: ['господарськ\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']

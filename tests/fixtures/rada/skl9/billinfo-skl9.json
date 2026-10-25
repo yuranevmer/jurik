@@ -1,0 +1,605 @@
+[
+ {
+  "id": 70544,
+  "type": "Звичайний",
+  "name": "Проєкт Закону про внесення змін до Податкового кодексу України та деяких інших законів України щодо перенесення термінів запровадження електронної простежуваності обігу алкогольних напоїв, тютюнових виробів та рідин, що використовуються в електронних сигаретах",
+  "url": "https://itd.rada.gov.ua/billInfo/Bills/Card/70544",
+  "registrationNumber": "15532",
+  "registrationDate": "2026-08-21T00:00:00",
+  "registrationSession": "15 сесія",
+  "registrationConvocation": "IX скликання",
+  "redaction": "Основний",
+  "rubric": "Економічна політика",
+  "subject": "Народний депутат України",
+  "actNumber": "5013-IX",
+  "actDate": "2026-10-13T00:00:00",
+  "initiators": [
+   {
+    "mp": {
+     "convocation": "IX скликання",
+     "person": {
+      "id": 19642,
+      "surname": "Гетманцев",
+      "firstname": "Данило",
+      "patronymic": "Олександрович"
+     }
+    },
+    "inner": null,
+    "outter": null
+   },
+   {
+    "mp": {
+     "convocation": "IX скликання",
+     "person": {
+      "id": 19804,
+      "surname": "Леонов",
+      "firstname": "Олексій",
+      "patronymic": "Олександрович"
+     }
+    },
+    "inner": null,
+    "outter": null
+   },
+   {
+    "mp": {
+     "convocation": "IX скликання",
+     "person": {
+      "id": 19900,
+      "surname": "Приходько",
+      "firstname": "Борис",
+      "patronymic": "Вікторович"
+     }
+    },
+    "inner": null,
+    "outter": null
+   },
+   {
+    "mp": {
+     "convocation": "IX скликання",
+     "person": {
+      "id": 13114,
+      "surname": "Ковальчук",
+      "firstname": "Олександр",
+      "patronymic": "Володимирович"
+     }
+    },
+    "inner": null,
+    "outter": null
+   },
+   {
+    "mp": {
+     "convocation": "IX скликання",
+     "person": {
+      "id": 16793,
+      "surname": "Скорик",
+      "firstname": "Микола",
+      "patronymic": "Леонідович"
+     }
+    },
+    "inner": null,
+    "outter": null
+   },
+   {
+    "mp": {
+     "convocation": "IX скликання",
+     "person": {
+      "id": 19709,
+      "surname": "Устенко",
+      "firstname": "Олексій",
+      "patronymic": "Олегович"
+     }
+    },
+    "inner": null,
+    "outter": null
+   },
+   {
+    "mp": {
+     "convocation": "IX скликання",
+     "person": {
+      "id": 16740,
+      "surname": "Южаніна",
+      "firstname": "Ніна",
+      "patronymic": "Петрівна"
+     }
+    },
+    "inner": null,
+    "outter": null
+   },
+   {
+    "mp": {
+     "convocation": "IX скликання",
+     "person": {
+      "id": 19796,
+      "surname": "Сова",
+      "firstname": "Олександр",
+      "patronymic": "Георгійович"
+     }
+    },
+    "inner": null,
+    "outter": null
+   }
+  ],
+  "mainExecutives": [
+   {
+    "department": "Комітет Верховної Ради України з питань фінансів, податкової та митної політики",
+    "person": {
+     "id": 19642,
+     "surname": "Гетманцев",
+     "firstname": "Данило",
+     "patronymic": "Олександрович"
+    }
+   }
+  ],
+  "executives": [
+   {
+    "department": "Комітет Верховної Ради України з питань цифрової трансформації",
+    "person": {
+     "id": 19784,
+     "surname": "Крячко",
+     "firstname": "Михайло",
+     "patronymic": "Валерійович"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань економічного розвитку",
+    "person": {
+     "id": 16897,
+     "surname": "Тарута",
+     "firstname": "Сергій",
+     "patronymic": "Олексійович"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань організації державної влади, місцевого самоврядування, регіонального розвитку та містобудування",
+    "person": {
+     "id": 19694,
+     "surname": "Шуляк",
+     "firstname": "Олена",
+     "patronymic": "Олексіївна"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань бюджету",
+    "person": {
+     "id": 19887,
+     "surname": "Підласа",
+     "firstname": "Роксолана",
+     "patronymic": "Андріївна"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань антикорупційної політики",
+    "person": {
+     "id": 19778,
+     "surname": "Радіна",
+     "firstname": "Анастасія",
+     "patronymic": "Олегівна"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань інтеграції України до Європейського Союзу",
+    "person": {
+     "id": 16757,
+     "surname": "Климпуш-Цинцадзе",
+     "firstname": "Іванна",
+     "patronymic": "Орестівна"
+    }
+   }
+  ],
+  "documents": {
+   "source": [
+    {
+     "id": 2318081,
+     "kindId": 63,
+     "kind": "Проєкт Закону",
+     "registrationNum": 195319,
+     "registrationDate": "2026-08-19T18:00:20.763",
+     "outcomingNum": "20д9/1-2026/195319",
+     "outcomingDate": "2026-08-20T19:44:02.927",
+     "docFiles": [
+      {
+       "id": 3618844,
+       "name": "Документ_2318081(2).pdf",
+       "type": "Пояснювальна записка",
+       "url": "https://itd.rada.gov.ua/billInfo/Bills/pubFile/3618844",
+       "archiveWithSignsUrl": "https://itd.rada.gov.ua/billInfo/Bills/pubFileZip/3618844"
+      },
+      {
+       "id": 3618837,
+       "name": "Документ_2318081(1).pdf",
+       "type": "Порівняльна таблиця",
+       "url": "https://itd.rada.gov.ua/billInfo/Bills/pubFile/3618837",
+       "archiveWithSignsUrl": "https://itd.rada.gov.ua/billInfo/Bills/pubFileZip/3618837"
+      },
+      {
+       "id": 3618835,
+       "name": "Документ_2318081.pdf",
+       "type": "Проєкт Закону",
+       "url": "https://itd.rada.gov.ua/billInfo/Bills/pubFile/3618835",
+       "archiveWithSignsUrl": "https://itd.rada.gov.ua/billInfo/Bills/pubFileZip/3618835"
+      },
+      {
+       "id": 3618846,
+       "name": "Документ_2318081(4).pdf",
+       "type": "Проєкт Постанови до Закону (іншого Акта)",
+       "url": "https://itd.rada.gov.ua/billInfo/Bills/pubFile/3618846",
+       "archiveWithSignsUrl": "https://itd.rada.gov.ua/billInfo/Bills/pubFileZip/3618846"
+      },
+      {
+       "id": 3618845,
+       "name": "Документ_2318081(3).pdf",
+       "type": "Подання",
+       "url": "https://itd.rada.gov.ua/billInfo/Bills/pubFile/3618845",
+       "archiveWithSignsUrl": "https://itd.rada.gov.ua/billInfo/Bills/pubFileZip/3618845"
+      }
+     ],
+     "publishDate": "2026-08-21T16:35:21",
+     "meetingDate": null,
+     "short_review": null,
+     "formal_review": null,
+     "mainSpeaker": null,
+     "coSpeakers": null,
+     "billProcedureId": 1,
+     "relDocFoCorrespondents": null,
+     "procedureName": "Первинна",
+     "preparation": []
+    }
+   ],
+   "workflow": []
+  },
+  "currentPhase": {
+   "date": null,
+   "title": null,
+   "status": "Закон підписано"
+  },
+  "passings": [
+   {
+    "date": "2026-10-23T18:05:00",
+    "title": "Повернуто з підписом від Президента України",
+    "status": "Передано на підпис Президенту"
+   },
+   {
+    "date": "2026-10-19T12:00:00",
+    "title": "Закон направлено на підпис Президенту України",
+    "status": "Готується на підпис"
+   },
+   {
+    "date": "2026-10-19T11:20:00",
+    "title": "Повернуто з підписом Голови Верховної Ради України",
+    "status": "Готується на підпис"
+   },
+   {
+    "date": "2026-10-19T09:00:00",
+    "title": "Передано на підпис Голові Верховної Ради України",
+    "status": "Готується на підпис"
+   },
+   {
+    "date": "2026-10-15T14:00:00",
+    "title": "Одержано після візування",
+    "status": "Готується на підпис"
+   },
+   {
+    "date": "2026-10-15T11:10:00",
+    "title": "Передано для візування в головний комітет",
+    "status": "Готується на підпис"
+   },
+   {
+    "date": "2026-10-13T13:40:00",
+    "title": "Одержано для оформлення",
+    "status": "Готується на підпис"
+   },
+   {
+    "date": "2026-10-13T12:48:39.18",
+    "title": "Закон прийнято",
+    "status": "Очікує розгляду"
+   },
+   {
+    "date": "2026-10-13T12:37:49.65",
+    "title": "Включено до порядку денного",
+    "status": "Очікує розгляду"
+   },
+   {
+    "date": "2026-10-12T14:21:00",
+    "title": "В порядок денний сесії не включено",
+    "status": "Очікує розгляду"
+   },
+   {
+    "date": "2026-10-12T14:20:00",
+    "title": "В порядок денний сесії не включено",
+    "status": "Очікує розгляду"
+   },
+   {
+    "date": "2026-09-17T11:43:00",
+    "title": "В порядок денний сесії не включено",
+    "status": "Очікує розгляду"
+   },
+   {
+    "date": "2026-09-11T09:18:40.89",
+    "title": "Надано висновок Комітету про розгляд",
+    "status": "Опрацьовується в комітеті"
+   },
+   {
+    "date": "2026-08-24T09:24:58.407",
+    "title": "Надано для ознайомлення",
+    "status": "Опрацьовується в комітеті"
+   },
+   {
+    "date": "2026-08-21T16:35:21",
+    "title": "Направлено на розгляд Комітету",
+    "status": "Одержано проєкт"
+   },
+   {
+    "date": "2026-08-21T10:56:15.217",
+    "title": "Передано на розгляд керівництву",
+    "status": "Одержано проєкт"
+   },
+   {
+    "date": "2026-08-21T10:56:15.217",
+    "title": "Одержано Верховною Радою України",
+    "status": "Прийом"
+   }
+  ],
+  "agenda": [
+   {
+    "number": "5011-IX",
+    "date": "2026-10-13T00:00:00"
+   }
+  ],
+  "bind": [],
+  "alternative": [],
+  "isUrgent": false,
+  "isEuro": false
+ },
+ {
+  "id": 69985,
+  "type": "Звичайний",
+  "name": "Проєкт Закону про внесення змін до Податкового кодексу України щодо оподаткування операцій електронної торгівлі податком на додану вартість",
+  "url": "https://itd.rada.gov.ua/billInfo/Bills/Card/69985",
+  "registrationNumber": "15112-д",
+  "registrationDate": "2026-05-07T00:00:00",
+  "registrationSession": "15 сесія",
+  "registrationConvocation": "IX скликання",
+  "redaction": "Основний",
+  "rubric": "Економічна політика",
+  "subject": "Народний депутат України",
+  "actNumber": null,
+  "actDate": null,
+  "initiators": [
+   {
+    "mp": {
+     "convocation": "IX скликання",
+     "person": {
+      "id": 19642,
+      "surname": "Гетманцев",
+      "firstname": "Данило",
+      "patronymic": "Олександрович"
+     }
+    },
+    "inner": null,
+    "outter": null
+   },
+   {
+    "mp": {
+     "convocation": "IX скликання",
+     "person": {
+      "id": 19796,
+      "surname": "Сова",
+      "firstname": "Олександр",
+      "patronymic": "Георгійович"
+     }
+    },
+    "inner": null,
+    "outter": null
+   }
+  ],
+  "mainExecutives": [
+   {
+    "department": "Комітет Верховної Ради України з питань фінансів, податкової та митної політики",
+    "person": {
+     "id": 19642,
+     "surname": "Гетманцев",
+     "firstname": "Данило",
+     "patronymic": "Олександрович"
+    }
+   }
+  ],
+  "executives": [
+   {
+    "department": "Комітет Верховної Ради України з питань економічного розвитку",
+    "person": {
+     "id": 16897,
+     "surname": "Тарута",
+     "firstname": "Сергій",
+     "patronymic": "Олексійович"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань цифрової трансформації",
+    "person": {
+     "id": 19784,
+     "surname": "Крячко",
+     "firstname": "Михайло",
+     "patronymic": "Валерійович"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань транспорту та інфраструктури",
+    "person": {
+     "id": 19751,
+     "surname": "Кісєль",
+     "firstname": "Юрій",
+     "patronymic": "Григорович"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань організації державної влади, місцевого самоврядування, регіонального розвитку та містобудування",
+    "person": {
+     "id": 19694,
+     "surname": "Шуляк",
+     "firstname": "Олена",
+     "patronymic": "Олексіївна"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань бюджету",
+    "person": {
+     "id": 19887,
+     "surname": "Підласа",
+     "firstname": "Роксолана",
+     "patronymic": "Андріївна"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань антикорупційної політики",
+    "person": {
+     "id": 19778,
+     "surname": "Радіна",
+     "firstname": "Анастасія",
+     "patronymic": "Олегівна"
+    }
+   },
+   {
+    "department": "Комітет Верховної Ради України з питань інтеграції України до Європейського Союзу",
+    "person": {
+     "id": 16757,
+     "surname": "Климпуш-Цинцадзе",
+     "firstname": "Іванна",
+     "patronymic": "Орестівна"
+    }
+   }
+  ],
+  "documents": {
+   "source": [
+    {
+     "id": 2224741,
+     "kindId": 63,
+     "kind": "Проєкт Закону",
+     "registrationNum": 104345,
+     "registrationDate": "2026-05-06T18:07:16.537",
+     "outcomingNum": "04-32/03-2026/104345",
+     "outcomingDate": "2026-05-07T13:42:18.903",
+     "docFiles": [
+      {
+       "id": 3454909,
+       "name": "Документ_2224741(1).pdf",
+       "type": "Порівняльна таблиця",
+       "url": "https://itd.rada.gov.ua/billInfo/Bills/pubFile/3454909",
+       "archiveWithSignsUrl": "https://itd.rada.gov.ua/billInfo/Bills/pubFileZip/3454909"
+      },
+      {
+       "id": 3454906,
+       "name": "Документ_2224741.pdf",
+       "type": "Проєкт Закону",
+       "url": "https://itd.rada.gov.ua/billInfo/Bills/pubFile/3454906",
+       "archiveWithSignsUrl": "https://itd.rada.gov.ua/billInfo/Bills/pubFileZip/3454906"
+      },
+      {
+       "id": 3454912,
+       "name": "Документ_2224741(4).pdf",
+       "type": "Проєкт Постанови до Закону (іншого Акта)",
+       "url": "https://itd.rada.gov.ua/billInfo/Bills/pubFile/3454912",
+       "archiveWithSignsUrl": "https://itd.rada.gov.ua/billInfo/Bills/pubFileZip/3454912"
+      },
+      {
+       "id": 3454911,
+       "name": "Документ_2224741(3).pdf",
+       "type": "Подання",
+       "url": "https://itd.rada.gov.ua/billInfo/Bills/pubFile/3454911",
+       "archiveWithSignsUrl": "https://itd.rada.gov.ua/billInfo/Bills/pubFileZip/3454911"
+      },
+      {
+       "id": 3454910,
+       "name": "Документ_2224741(2).pdf",
+       "type": "Пояснювальна записка",
+       "url": "https://itd.rada.gov.ua/billInfo/Bills/pubFile/3454910",
+       "archiveWithSignsUrl": "https://itd.rada.gov.ua/billInfo/Bills/pubFileZip/3454910"
+      }
+     ],
+     "publishDate": "2026-05-11T08:25:20",
+     "meetingDate": null,
+     "short_review": null,
+     "formal_review": null,
+     "mainSpeaker": null,
+     "coSpeakers": null,
+     "billProcedureId": 1,
+     "relDocFoCorrespondents": null,
+     "procedureName": "Первинна",
+     "preparation": []
+    }
+   ],
+   "workflow": []
+  },
+  "currentPhase": {
+   "date": null,
+   "title": null,
+   "status": "Відхилено та знято з розгляду"
+  },
+  "passings": [
+   {
+    "date": "2026-09-01T13:32:30.663",
+    "title": "Проєкт не прийнято",
+    "status": "Очікує розгляду"
+   },
+   {
+    "date": "2026-08-31T09:39:52.98",
+    "title": "Надано висновок Комітету про розгляд",
+    "status": "Опрацьовується в комітеті"
+   },
+   {
+    "date": "2026-08-31T09:08:48.953",
+    "title": "Надано для ознайомлення",
+    "status": "Опрацьовується в комітеті"
+   },
+   {
+    "date": "2026-08-28T16:06:18",
+    "title": "Направлено на розгляд Комітету",
+    "status": "Одержано проєкт"
+   },
+   {
+    "date": "2026-08-26T16:36:43.357",
+    "title": "Передано на розгляд керівництву",
+    "status": "Одержано проєкт"
+   },
+   {
+    "date": "2026-08-26T16:36:43.357",
+    "title": "Одержано доопрацьований проєкт",
+    "status": "Прийом"
+   },
+   {
+    "date": "2026-05-11T09:41:42.69",
+    "title": "Надано висновок Комітету про розгляд",
+    "status": "Опрацьовується в комітеті"
+   },
+   {
+    "date": "2026-05-11T09:26:35.157",
+    "title": "Надано для ознайомлення",
+    "status": "Опрацьовується в комітеті"
+   },
+   {
+    "date": "2026-05-11T08:25:20",
+    "title": "Направлено на розгляд Комітету",
+    "status": "Одержано проєкт"
+   },
+   {
+    "date": "2026-05-07T14:29:45.777",
+    "title": "Передано на розгляд керівництву",
+    "status": "Одержано проєкт"
+   },
+   {
+    "date": "2026-05-07T14:29:45.777",
+    "title": "Одержано доопрацьований Комітетом проєкт",
+    "status": "Прийом"
+   }
+  ],
+  "agenda": [
+   {
+    "number": "4958-IX",
+    "date": "2026-09-01T00:00:00"
+   }
+  ],
+  "bind": [],
+  "alternative": [],
+  "isUrgent": false,
+  "isEuro": true
+ }
+]

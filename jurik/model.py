@@ -74,7 +74,7 @@ class Person:
 class LawMeta:
     """Bill/law metadata from data.rada.gov.ua open data."""
 
-    law_number: str  # "2856-VI"
+    law_number: str  # nreg of the adopted act ("2856-17"), "" if the bill is not a law
     law_title: str
     bill: BillRef | None
     initiators: list[Person]
@@ -83,3 +83,4 @@ class LawMeta:
     votes: tuple[int, int, int] | None  # for, against, abstained
     signed: date | None
     status: LawStatus
+    display_number: str = ""  # act number as displayed ("2856-VI"), "" if not a law

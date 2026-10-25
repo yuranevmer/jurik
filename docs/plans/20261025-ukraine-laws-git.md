@@ -444,15 +444,17 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `tests/fixtures/rada/` (обрезанные JSON по 2–3 законопроектам с голосованием, один отклонённый)
 - Create: `tests/test_rada_client.py`, `tests/test_rada_index.py`, `tests/test_match.py`
 
-- [ ] `RadaClient.fetch_convocation(n)`: скачать файлы, найденные в Task 2, в `cache/rada/skl<n>/`, тот же кеш-подход, что в Task 3
+- [x] `RadaClient.fetch_convocation(n)`: скачать файлы, найденные в Task 2, в `cache/rada/skl<n>/`, тот же кеш-подход, что в Task 3
 - ⚠️ (Task 2) файлы: `https://data.rada.gov.ua/ogd/zpr/skl<n>/bills_{main,acts,initiators,passings,documents}-skl<n>.csv` (III–VIII полны; IX CSV заморожены с 2025-01, для IX брать `https://data.rada.gov.ua/ogd/zpr/skl9/billinfo-skl9.zip` → JSON 142 МБ, парсить `strict=False`); голосования `https://data.rada.gov.ua/ogd/zal/ppz/skl<n>/plenary_{agenda,event_question,result_event}-skl<n>.csv`. Поля и способ стыковки в `docs/spike-sources.md`
 - ⚠️ (Task 2) ключ закона в индексе = nreg (`act_number` `229-IX`/`229-ІХ` кириллицей/`650-XIV` → `229-20`, `650-14`); голосование «в цілому» искать по номеру законопроекта (`plenary_agenda.number_question` или `№NNNN` в `name_event`) и дате = дата принятия (IX: 96% законов находятся); id законопроекта IX в `billinfo` (`itd …/Bills/Card/<id>`) не совпадает с `bill_id`/`pf3511` из CSV, стыковать по (созыв, `registrationNumber`)
-- [ ] `build_index(cache) -> LawIndex` с `by_law[law_number] -> LawMeta` и `bills[BillRef] -> LawMeta`; при нескольких голосованиях брать «прийнято в цілому»; `Person.slug` = транслит ФИО
-- [ ] `match.py`: для каждого кодекса набор регулярок по названию законопроекта в разных падежах (`Податков(ого|ому|ий) кодекс(у|і)`), таблица в `codes.yaml` поле `title_patterns`; `bills_for_code(slug) -> list[LawMeta]` всех статусов. Известное ограничение: законопроекты «до деяких законодавчих актів» без имени кодекса не находятся; доля записывается в отчёт
-- [ ] для принятых законов связь кодекс↔закон берётся из підстав редакций, а не из названий
-- [ ] `jurik rada [--convocation N]` качает, строит индекс, печатает статистику покрытия
-- [ ] write tests на фикстурах: `LawMeta` собран полностью; закон без голосования → `votes=None`; отклонённый → `status=rejected`; таблица реальных названий → правильный slug, «до деяких законодавчих актів» → не матчится; битый JSON → ошибка с именем файла
-- [ ] run tests - must pass before next task
+- [x] `build_index(cache) -> LawIndex` с `by_law[law_number] -> LawMeta` и `bills[BillRef] -> LawMeta`; при нескольких голосованиях брать «прийнято в цілому»; `Person.slug` = транслит ФИО
+- [x] `match.py`: для каждого кодекса набор регулярок по названию законопроекта в разных падежах (`Податков(ого|ому|ий) кодекс(у|і)`), таблица в `codes.yaml` поле `title_patterns`; `bills_for_code(slug) -> list[LawMeta]` всех статусов. Известное ограничение: законопроекты «до деяких законодавчих актів» без имени кодекса не находятся; доля записывается в отчёт
+- [x] для принятых законов связь кодекс↔закон берётся из підстав редакций, а не из названий
+- [x] `jurik rada [--convocation N]` качает, строит индекс, печатает статистику покрытия
+- [x] write tests на фикстурах: `LawMeta` собран полностью; закон без голосования → `votes=None`; отклонённый → `status=rejected`; таблица реальных названий → правильный slug, «до деяких законодавчих актів» → не матчится; битый JSON → ошибка с именем файла
+- [x] run tests - must pass before next task
+- ✅ итог (Task 11): `jurik rada` (все созывы, ~30 МБ кеша, ~9 с на индекс): законов 6932, с голосованием 5944 (86%: III 50% — данные голосований III только 1999-09…2002-03; IV 70%; V–IX 92–99%), с инициаторами 6910 (~100%); підстави редакций кэшированных кодексов находятся 100% кроме `2147а-19` (Сімейний 63/64, Цивільний 201/202, Податковий 238/238, Конституція 7/7). Не принятые законопроекты «до деяких законодавчих актів» без имени кодекса: 4166/4348 (96%) не матчатся
+- ✅ API (Task 11): `RadaClient(cache, refetch=...)` из `jurik/rada/client.py` (`fetch_convocation(n)` → `cache/rada/skl<n>/*.csv.gz` и `billinfo-skl9.zip`); `build_index(cache, convocations) -> LawIndex` из `jurik/rada/index.py`, `index.law(nreg)`, `index.by_law[nreg]`, `index.bills[BillRef]` (законопроекты-законы всех статусов, постанови не индексируются); `LawMeta.law_number` = nreg (`524-16`, `""` если не закон), новое поле `LawMeta.display_number` (`524-V`) для сообщений; `Person.name` = «Ім'я Прізвище», `Person.slug` = транслит «прізвище-імя-по-батькові»; `jurik/rada/match.py`: `bills_for_code(index, code, bases)` (принятые = из `bases`, остальные по `title_patterns`), `match_codes`, `omnibus_unmatched`, `coverage_report`
 
 ### Task 12: Builder: change set'ы и линейная история в `main`
 
@@ -461,6 +463,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `tests/test_changeset.py`, `tests/test_fastimport.py`, `tests/test_history.py`, `tests/test_message.py`
 
 - ⚠️ (Task 10) у уровней есть два новых вида: `final` (ненумерованные «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ» ЦК, папка без числового префикса) и `group` (подзаголовки `N. Назва` внутри § ЦК); inline-примечания `{…}` из текста уже вырезаны деревом, так что правки одних примечаний не меняют файлы
+- ⚠️ (Task 11) для подписей `initial`-коммитов и `Law:` трейлеров: ключ закона = nreg (`Edition.bases` тоже nreg), `index.law(nreg)` → `LawMeta`, человекочитаемый номер `LawMeta.display_number` (или `jurik.zakon.card.display_number(nreg)`, если закона нет в индексе)
 - ⚠️ (Task 8) `render(trees, code, adopted=..., status=...)` уже отдаёт пути от корня репозитория (`codes/<slug>/...`), для КУпАП передавать список из двух деревьев (последние редакции каждой части на дату); repealed = удалить все пути с префиксом `codes/<slug>/`
 - [ ] `changeset.diff(prev_files, new_files) -> ChangeSet(modified: dict[path, bytes], deleted: set[path])`
 - [ ] `fastimport.py`: `Stream` с дедупликацией blob'ов по sha256 (mark на содержимое), `commit(ref, parents, author, committer, message, changeset)`; `run(stream, repo_path)` создаёт репозиторий и прогоняет `git fast-import`; timestamp через `zoneinfo("Europe/Kyiv")` 12:00
@@ -478,6 +481,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `jurik/build/refs.py`
 - Modify: `tests/test_history.py`, `tests/test_message.py`; Create: `tests/test_refs.py`
 
+- ⚠️ (Task 11) `LawIndex` из `jurik.rada.index.build_index(paths.cache)` (читает только кеш, `RadaError` если `jurik rada` не запускался); `index.law(nreg)` по підставі редакции; `LawMeta.bill` = `BillRef(conv, number)`, номер как в источнике (`0903`, `15112-д`, `1234/П`), `votes=None` у ~14% законов (в трейлере `Adopted:` писать без голосов), `registered`/`signed` бывают `None`; `initiators` может быть пустым (22 закона) → author «Верховна Рада України»; у внешних инициаторов (КМУ, Президент) Person = подписавший чиновник (`Віктор Янукович`), если ФИО нет — организация
 - [ ] `refs.ref_safe(s)` и `refs.bill_ref(BillRef) -> "bill/<conv>/<number>"`, `refs.law_ref(law_number) -> "bill/law/<safe>"`
 - [ ] `plan_full(..., law_index)`: для шага с підставами-законами найти `LawMeta` первого закона; `Step(branch)` от `main_at_registered` (последний коммит `main` с `In-force:` ≤ регистрация, иначе родитель merge) с change set; `Step(merge)` с тем же change set; несколько підстав → трейлеры `Law:`/`Bill:` на каждый, `Reason: multiple`; второй этап того же закона → новый коммит в той же ветке `Stage: N` и повторный merge
 - [ ] author/committer/даты по таблице из Technical Details; email инициатора `<slug>@deputies.invalid`
@@ -507,6 +511,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 
 - [ ] `billtext.fetch(bill) -> str | None`: выбрать документ «текст законопроекту» по признаку из Task 2; скачать в `cache/rada/bills/<conv>/<n>.<ext>`; docx → markdown через `python-docx`, pdf → текст через `pypdf` (добавить зависимости); нет файла/ссылки → `None`
 - ⚠️ (Task 2) признак: III–VIII `bills_documents.document_type == «Проект Закону»` (также «Проект Закону (на заміну)», «Проект Кодексу»), ссылка `webproc34?...pf35401=<id>` отдаёт **html (cp1251), rtf или doc (Word 97)**, не только docx/pdf: нужна конвертация rtf/doc (например через `striprtf`, `antiword`/LibreOffice) или заглушка «Текст недоступний» для них. IX: `billinfo.documents.source[kind=«Проєкт Закону»].docFiles[type=«Проєкт Закону»]` (pdf/docx); `docFiles.url` даёт HTML-страницу, сам файл `GET https://itd.rada.gov.ua/billinfo/api/file/download/` с заголовками `X-File-Id`, `X-Current-Chunk` (ответ: `Size`, `ChunkSize`, `Type`)
+- ⚠️ (Task 11) `bills_for_code(index, code, bases)` из `jurik/rada/match.py` (сигнатура отличается от `bills_for_code(slug)`: нужны индекс, `Code` и підстави редакций); не принятые законопроекты по названию: Податковий ~2072, Конституція ~216, ЦК ~266, Сімейний ~90 → `--bills-limit` реально нужен. Ссылки на документы в `LawMeta` не хранятся: `bills_documents-skl<n>.csv.gz` (III–VIII) и `billinfo-skl9.zip` (IX) уже в `cache/rada/skl<n>/`, читать через `jurik.rada.index.read_csv`/`read_billinfo`
 - [ ] `plan_full`: для каждого `LawMeta` из `bills_for_code` со статусом ≠ adopted создать `Step(branch, ref=bill_ref)` с одним файлом `bills/<conv>/<n>.md` (текст или заглушка «Текст недоступний» + ссылка на карточку), author = инициатор, date = регистрация, сообщение со статусом и датой исхода; без merge
 - [ ] `--bills-limit N` для отладки и для ограничения полной сборки
 - [ ] write tests: docx-фикстура → markdown с абзацами; pdf-фикстура → текст; нет ссылки → `None`; ветка без merge создана, `main` не изменился; ref с суффиксом `-д`
@@ -518,6 +523,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `jurik/report.py`, `jurik/export.py`
 - Create: `tests/test_report.py`, `tests/test_export.py`
 
+- ⚠️ (Task 11) долю не найденных законопроектов «до деяких законодавчих актів» брать из `jurik.rada.match.omnibus_unmatched(index, codes)`; готовые строки покрытия open data: `coverage_report(index, codes, bases_by_code)`, підстави из кеша карточек: `jurik.cli.cached_code_bases(codes, cache)`
 - [ ] `jurik report`: `report/coverage.md` (по кодексу: редакций всего / распарсено / с законопроектом в open data / с голосованием; веток отклонённых; доля законов без LawMeta), `report/parse-failures.md`
 - [ ] `export.commit_at(repo, date)`: последний коммит `--first-parent main` с `In-force:` ≤ date (не `--before`)
 - [ ] `jurik export --at DATE --out DIR`: `git archive` этого коммита → папка markdown + `manifest.json` (дата, коммит, список кодексов)

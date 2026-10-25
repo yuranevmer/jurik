@@ -69,3 +69,11 @@ def test_paths(tmp_path):
     assert p.cache == tmp_path / "cache"
     assert p.build == tmp_path / "build"
     assert p.report == tmp_path / "report"
+
+
+def test_bad_title_pattern_rejected(write_registry):
+    path = write_registry(
+        "- slug: tax\n  zakon_id: '2755-17'\n  title: Податковий\n  title_patterns: ['(']\n"
+    )
+    with pytest.raises(ConfigError, match="tax.*title_patterns"):
+        load_codes(path)

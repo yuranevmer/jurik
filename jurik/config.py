@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,6 +77,12 @@ def parse_codes(data: object) -> list[Code]:
         patterns = entry.get("title_patterns") or []
         if isinstance(patterns, str):
             patterns = [patterns]
+        for pattern in patterns:
+            try:
+                re.compile(str(pattern))
+            except re.error as e:
+                msg = f"code {slug!r}: bad title_patterns regex {pattern!r}: {e}"
+                raise ConfigError(msg) from e
         codes.append(
             Code(
                 slug=slug,

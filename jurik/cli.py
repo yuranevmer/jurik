@@ -6,8 +6,12 @@ from pathlib import Path
 
 import click
 
-from jurik.config import ConfigError, Paths, get_code, load_codes
+from jurik.config import Code, ConfigError, Paths, get_code, load_codes
 from jurik.parse import EditionCheck, failures_report, parse_code
+from jurik.rada.client import CONVOCATIONS, RadaClient, RadaError
+from jurik.rada.index import build_index
+from jurik.rada.match import coverage_report
+from jurik.zakon.card import CardParseError, base_kind, parse_card
 from jurik.zakon.fetch import FetchResult, fetch_code
 from jurik.zakon.http import ZakonClient
 
@@ -15,6 +19,11 @@ from jurik.zakon.http import ZakonClient
 def make_zakon_client(cache: Path, *, refetch: bool = False) -> ZakonClient:
     """Factory for the zakon client (patched in tests)."""
     return ZakonClient(cache, refetch=refetch)
+
+
+def make_rada_client(cache: Path, *, refetch: bool = False) -> RadaClient:
+    """Factory for the Rada open data client (patched in tests)."""
+    return RadaClient(cache, refetch=refetch)
 
 
 def _not_implemented(name: str) -> None:
@@ -51,10 +60,43 @@ def fetch(code_slug: str | None, refetch: bool) -> None:
 
 
 @main.command()
-@click.option("--convocation", type=int, help="Convocation number (3..9).")
-def rada(convocation: int | None) -> None:
-    """Download Rada open data into cache/rada/."""
-    _not_implemented("rada")
+@click.option("--convocation", type=click.IntRange(3, 9), help="Convocation number (3..9).")
+@click.option("--refetch", is_flag=True, help="Re-download even if cached.")
+def rada(convocation: int | None, refetch: bool) -> None:
+    """Download Rada open data into cache/rada/, build the law index, print coverage."""
+    convocations = [convocation] if convocation else list(CONVOCATIONS)
+    paths = Paths(Path.cwd())
+    try:
+        codes = load_codes()
+        with make_rada_client(paths.cache, refetch=refetch) as client:
+            for n in convocations:
+                click.echo(f"skl{n}: fetching")
+                client.fetch_convocation(n, echo=click.echo)
+        index = build_index(paths.cache, convocations)
+    except (ConfigError, RadaError) as e:
+        raise click.ClickException(str(e)) from e
+    bases = cached_code_bases(codes, paths.cache)
+    for line in coverage_report(index, codes, bases):
+        click.echo(line)
+
+
+def cached_code_bases(codes: list[Code], cache: Path) -> dict[str, list[str]]:
+    """Law bases of every edition of each code whose card is already cached (no network)."""
+    out: dict[str, list[str]] = {}
+    with make_zakon_client(cache) as client:
+        for code in codes:
+            bases: list[str] = []
+            for zakon_id in code.zakon_ids:
+                if not client.is_cached(client.card_path(zakon_id)):
+                    break
+                try:
+                    card = parse_card(client.card(zakon_id), zakon_id)
+                except CardParseError:
+                    break
+                bases += [b for ed in card.editions for b in ed.bases if base_kind(b) == "law"]
+            else:
+                out[code.slug] = bases
+    return out
 
 
 @main.command()
