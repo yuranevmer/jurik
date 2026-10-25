@@ -143,6 +143,10 @@ def _title_ok(kind: UnitKind, dot: str, title: str) -> bool:
         return True
     # "Підрозділ 1. Особливості …", "§ 1. Господарські товариства"; ЦК also has a dotless
     # "§ 2 Правові наслідки недодержання …" (a body sentence never starts with "§ N")
+    if kind == "chapter" and not dot:
+        # Земельний кодекс: «Глава 5 Землі сільськогосподарського призначення» (no dot); a
+        # body sentence ends with punctuation
+        return title[0].isupper() and title[-1] not in ".;:,!?"
     return (bool(dot) or kind == "paragraph") and title[0].isupper()
 
 

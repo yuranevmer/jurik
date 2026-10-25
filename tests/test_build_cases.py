@@ -18,6 +18,7 @@ from jurik.zakon.tree import build_tree
 FIX = Path(__file__).parent / "fixtures" / "zakon"
 ELECTORAL = "396-20_ed20261022_build_fragment.html"
 CUSTOMS = "4495-17_ed20260917_build_fragment.html"
+LAND = "2768-14_ed20261016_build_fragment.html"
 
 
 def paras_of(name: str) -> list[Para]:
@@ -102,3 +103,28 @@ def test_customs_cyrillic_letters_in_section_numerals():
 )
 def test_match_heading_cyrillic_roman(text, number):
     assert match_heading(text) == ("section", number, text.split(maxsplit=2)[2].lstrip(". "))
+
+
+def test_land_dotless_chapter_headings():
+    # «Глава 1 Основні положення» (no dot, mixed case) was glued to the previous article
+    paras = paras_of(LAND)
+    tree = tree_of(paras, "2768-14")
+    chapters = [u for u in walk(tree.units) if isinstance(u, Unit) and u.kind == "chapter"]
+    assert [(c.number, c.title) for c in chapters][:1] == [("1", "Основні положення")]
+    assert [c.number for c in chapters] == ["1", "2"]
+    assert all("Глава" not in a.body for a in articles(tree))
+    res = verify_paragraphs(paras, render(tree, Code("land", ("2768-14",), "ЗК")))
+    assert res.ok, res.missing[:5]
+
+
+@pytest.mark.parametrize(
+    ("text", "heading"),
+    [
+        ("Глава 5 Землі сільськогосподарського призначення", True),
+        ("Глава 16 - 1 Право користування чужою земельною ділянкою", True),
+        ("Глава 5 Кодексу застосовується до цих відносин.", False),
+        ("Глава 5 цього Кодексу", False),
+    ],
+)
+def test_match_heading_dotless_chapter(text, heading):
+    assert (match_heading(text) is not None) == heading
