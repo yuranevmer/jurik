@@ -12,11 +12,12 @@ from jurik.config import Code
 from jurik.model import Article, DocTree, Edition, Unit
 from jurik.render import render
 from jurik.verify import verify_paragraphs
-from jurik.zakon.paragraphs import Para, extract_paragraphs
+from jurik.zakon.paragraphs import Para, extract_paragraphs, match_heading
 from jurik.zakon.tree import build_tree
 
 FIX = Path(__file__).parent / "fixtures" / "zakon"
 ELECTORAL = "396-20_ed20261022_build_fragment.html"
+CUSTOMS = "4495-17_ed20260917_build_fragment.html"
 
 
 def paras_of(name: str) -> list[Para]:
@@ -75,3 +76,29 @@ def test_electoral_additive_roman_section_numbers(electoral, electoral_paras):
     assert any("/42-prykintsevi" in p for p in files)
     res = verify_paragraphs(electoral_paras, files)
     assert res.ok, res.missing[:5]
+
+
+def test_customs_cyrillic_letters_in_section_numerals():
+    # «Розділ XVІ МИТНА СТАТИСТИКА» (Cyrillic І, no dot) was glued to the previous article
+    paras = paras_of(CUSTOMS)
+    tree = tree_of(paras, "4495-17")
+    sections = [u for u in walk(tree.units) if isinstance(u, Unit) and u.kind == "section"]
+    assert [s.number for s in sections] == ["XVI", "XVII", "XVIII", "XIX"]
+    assert sections[0].title == "МИТНА СТАТИСТИКА"
+    assert all("Розділ" not in a.body for a in articles(tree))
+    files = render(tree, Code(slug="customs", zakon_ids=("4495-17",), title="МК"))
+    assert "codes/customs/19-provadzhennia-u-spravakh-pro-porushennia/provisions.md" in files
+    res = verify_paragraphs(paras, files)
+    assert res.ok, res.missing[:5]
+
+
+@pytest.mark.parametrize(
+    ("text", "number"),
+    [
+        ("Розділ XVІ МИТНА СТАТИСТИКА", "XVI"),
+        ("Розділ XІX ПРОВАДЖЕННЯ", "XIX"),
+        ("Розділ ІХ. ТИТУЛ", "IX"),
+    ],
+)
+def test_match_heading_cyrillic_roman(text, number):
+    assert match_heading(text) == ("section", number, text.split(maxsplit=2)[2].lstrip(". "))

@@ -89,7 +89,10 @@ _ARTICLE = re.compile(rf"^Стаття\s+({_INDEX})\s*\.\s*(.*)$", re.S)
 _BOOK = re.compile(rf"^Книга\s+({_ORDINAL_RE})\b\.?\s*(.*)$", re.I | re.S)
 _PART = re.compile(r"^(Загальна|Особлива)\s+частина\.?\s*(.*)$", re.I | re.S)
 _TAIL = r"(?=[\s.]|$)\s*(\.?)\s*(.*)$"
-_SECTION = re.compile(rf"^Розділ\s+([IVXLC]+(?:\s*-\s*\d+)?){_TAIL}", re.I | re.S)
+# Митний кодекс mixes Cyrillic І/Х into Roman numerals: «Розділ XVІ», «Розділ XІX»
+_SECTION = re.compile(rf"^Розділ\s+([IVXLCІХ]+(?:\s*-\s*\d+)?){_TAIL}", re.I | re.S)
+_CYRILLIC_ROMAN = str.maketrans("ІХіх", "IXix")
+_SECTION_NUMERAL = re.compile(r"^(Розділ\s+)([IVXLCІХ]+)", re.I)
 _SUBSECTION = re.compile(rf"^Підрозділ\s+({_INDEX}){_TAIL}", re.I | re.S)
 _CHAPTER = re.compile(rf"^Глава\s+({_INDEX}){_TAIL}", re.I | re.S)
 _PARAGRAPH = re.compile(rf"^§\s*({_INDEX}){_TAIL}", re.S)
@@ -165,7 +168,7 @@ def match_heading(text: str) -> tuple[UnitKind, str, str] | None:
                 return None
             number = _norm_index(m.group(1))
             if kind == "section":
-                number = number.upper()
+                number = number.upper().translate(_CYRILLIC_ROMAN)
             return kind, number, title  # type: ignore[return-value]
     return None
 
@@ -342,6 +345,8 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
             seen_structure = True
             unit_kind, number, htitle = head
             level = unit_kind
+            if unit_kind == "section":  # the heading text carries the Latin numeral too
+                text = _SECTION_NUMERAL.sub(lambda m: m[1] + m[2].translate(_CYRILLIC_ROMAN), text)
             if not htitle and i < len(blocks):
                 nxt = blocks[i]
                 if (
