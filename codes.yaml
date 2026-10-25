@@ -115,6 +115,9 @@
 - slug: commercial
   zakon_id: "436-15"
   title: Господарський кодекс України  # verified: від 16.01.2003 № 436-IV (repealed 2025)
-  # repealed: YYYY-MM-DD / repealed_by: <nreg> — fill from the card when fetched (Task 17);
-  # the build then deletes codes/commercial/ on that day (Reason: repealed)
+  # card 436-15 (Task 17): status «Втратив чинність», edition entry podid 3 (loss of force)
+  # datred 20250828, pidstava 4196-20 (Закон № 4196-IX від 09.01.2025); the build deletes
+  # codes/commercial/ on that day (Reason: repealed)
+  repealed: 2025-08-28
+  repealed_by: "4196-20"
   title_patterns: ['господарськ\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
