@@ -17,22 +17,30 @@ from jurik.model import Article, DocTree, Edition, Unit, UnitKind
 from jurik.zakon.paragraphs import Para
 
 RANK: dict[UnitKind, int] = {
+    "final": -1,  # unnumbered «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ»: closes every level
     "book": 0,
     "part": 1,
     "section": 2,
     "subsection": 3,
     "chapter": 4,
     "paragraph": 5,
+    "group": 6,
 }
 
 EXCLUDED_TITLE = "Виключена"
+LAPSED_TITLE = "Втратила чинність"
 
 _EXCLUDED_WORD = re.compile(r"^(виключен[аоий]|виключено)\.?$", re.I)
-# "{Статтю 196 виключено на підставі Закону № 3585-IX від 22.02.2024 }"
+# "{Статтю 196 виключено на підставі Закону № 3585-IX від 22.02.2024 }"; the source also has
+# "{С таттю 115 виключено …}" (split word), "{Cтаттю 990 …}" (Latin C) and
+# "{Стаття 209 втратила чинність з 1 січня 2017 року - див. …}"
 _EXCLUSION_NOTE = re.compile(
-    r"^[/\-\s]*\{\s*Статт[юя]\s+(?P<num>\d+(?:\s*-\s*\d+)?)\s+виключено\s*(?P<basis>[^{}]*?)\s*\.?\s*\}?$",
+    r"^[/\-\s]*\{\s*[СC]\s*татт[юя]\s+(?P<num>\d+(?:\s*-\s*\d+)?)\s+"
+    r"(?P<verb>виключено|втратила\s+чинність)\s*(?P<basis>[^{}]*?)\s*\.?\s*\}?$",
     re.I | re.S,
 )
+# inline editorial note inside a text paragraph: "174.5. {Абзац перший … виключено …}"
+_INLINE_NOTE = re.compile(r"\s*\{[^{}]*\}")
 # first paragraph of the closing block: signature line/table or the "***" separator
 _CLOSING_START = re.compile(r"^(?:\|\s*)?(?:Президент України|Голова Верховної Ради)\b|^\*\*\*$")
 
@@ -45,13 +53,30 @@ def _join(parts: list[str]) -> str:
     return "\n\n".join(parts)
 
 
-def _exclusion_basis(text: str, number: str) -> str | None:
-    """``"Виключена на підставі …"`` if ``text`` is an exclusion note for article ``number``."""
+def strip_notes(text: str) -> str:
+    """Remove inline ``{…}`` editorial notes (the plan: notes are not part of the text)."""
+    if "{" not in text:
+        return text
+    prev = None
+    while prev != text:
+        prev, text = text, _INLINE_NOTE.sub("", text)
+    # keep line breaks (markdown tables), collapse spaces left by the removed notes
+    lines = (" ".join(line.split()) for line in text.split("\n"))
+    return "\n".join(line for line in lines if line)
+
+
+def _exclusion(text: str, number: str) -> tuple[str, str] | None:
+    """``(title, body)`` of the stub if ``text`` is an exclusion note for article ``number``.
+
+    ``("Виключена", "Виключена на підставі …")`` or ``("Втратила чинність", "Втратила
+    чинність з … - див. …")``.
+    """
     m = _EXCLUSION_NOTE.match(text)
     if not m or re.sub(r"\s*-\s*", "-", m.group("num")) != number:
         return None
-    basis = m.group("basis").strip().rstrip(".").strip()
-    return f"{EXCLUDED_TITLE} {basis}." if basis else f"{EXCLUDED_TITLE}."
+    title = EXCLUDED_TITLE if m.group("verb").lower() == "виключено" else LAPSED_TITLE
+    basis = " ".join(m.group("basis").split()).rstrip(".").strip()
+    return title, f"{title} {basis}." if basis else f"{title}."
 
 
 def _closing_start(paras: Sequence[Para]) -> int:
@@ -64,6 +89,11 @@ def _closing_start(paras: Sequence[Para]) -> int:
         if p.kind == "body" and _CLOSING_START.match(p.text):
             start = i
     return start
+
+
+def _key(unit: Unit) -> tuple[str, str]:
+    """Identity of a level among its siblings (unnumbered final provisions: by title)."""
+    return unit.kind, unit.number or unit.title.casefold()
 
 
 class _Builder:
@@ -87,15 +117,14 @@ class _Builder:
         if art is None:
             return
         art.body = _join(self.article_body)
-        basis = next(
-            (b for n in self.article_notes if (b := _exclusion_basis(n, art.number))), None
-        )
+        stub = next((x for n in self.article_notes if (x := _exclusion(n, art.number))), None)
         # "Стаття 5. Виключена" or an article whose only content is the exclusion note
-        if art.excluded or (basis and not art.body and not art.title):
+        if art.excluded or (stub and not art.body and not art.title):
             art.excluded = True
-            art.title = EXCLUDED_TITLE
+            if not art.title or _EXCLUDED_WORD.match(art.title):
+                art.title = stub[0] if stub else EXCLUDED_TITLE
             if not art.body:
-                art.body = basis or ""
+                art.body = stub[1] if stub else ""
         self.article = None
         self.article_body = []
         self.article_notes = []
@@ -109,9 +138,9 @@ class _Builder:
         while self.stack and RANK[self.stack[-1].kind] >= rank:
             self.stack.pop()
         siblings = self._siblings()
-        unit = Unit(kind=p.unit_kind, number=p.number, title=p.title)
+        unit = Unit(kind=p.unit_kind, number=p.number, title=strip_notes(p.title))
         for i, other in enumerate(siblings):
-            if isinstance(other, Unit) and (other.kind, other.number) == (unit.kind, unit.number):
+            if isinstance(other, Unit) and _key(other) == _key(unit):
                 if (
                     not other.children
                     and not self.provisions.get(id(other))
@@ -137,14 +166,20 @@ class _Builder:
         self.seen_articles[p.number] = pos
         title = p.title
         excluded = bool(_EXCLUDED_WORD.match(title))
-        if not excluded and _exclusion_basis(title, p.number):
+        if not excluded and (stub := _exclusion(title, p.number)):
             # ЦК: "Стаття 196. {Статтю 196 виключено на підставі Закону № …}"
             excluded = True
             self.article_notes.append(title)
-        self.article = Article(number=p.number, title=title, body="", excluded=excluded)
+            title = stub[0]
+        self.article = Article(
+            number=p.number, title=strip_notes(title), body="", excluded=excluded
+        )
         self._siblings().append(self.article)
 
     def body(self, text: str) -> None:
+        text = strip_notes(text)
+        if not text:
+            return
         if self.article is not None:
             self.article_body.append(text)
         elif self.stack:
@@ -184,7 +219,7 @@ def build_tree(paragraphs: Sequence[Para], edition: Edition) -> DocTree:
             b.note(p.text)
         # header: dropped
     units, preamble = b.finish()
-    closing = _join([p.text for p in paragraphs[end:] if p.kind == "body"])
+    closing = _join([t for p in paragraphs[end:] if p.kind == "body" if (t := strip_notes(p.text))])
     return DocTree(
         zakon_id=edition.zakon_id,
         edition=edition,

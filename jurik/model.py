@@ -7,7 +7,11 @@ from datetime import date
 from typing import Literal
 
 EditionKind = Literal["law", "court", "other"]
-UnitKind = Literal["book", "part", "section", "subsection", "chapter", "paragraph"]
+# "final": unnumbered top-level «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ» (ЦК), number "";
+# "group": unlabelled numbered sub-heading inside a § («2. Повне товариство» in ЦК § 1)
+UnitKind = Literal[
+    "final", "book", "part", "section", "subsection", "chapter", "paragraph", "group"
+]
 LawStatus = Literal["adopted", "rejected", "withdrawn", "removed", "pending"]
 
 

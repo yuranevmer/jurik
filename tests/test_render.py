@@ -195,10 +195,9 @@ def test_tax_subsection_provisions():
 def test_civil_paragraph_provisions_before_articles():
     files = render(fixture_tree("435-15_print_fragment.html", "435-15"), code("civil", "435-15"))
     prov = [p for p in files if p.endswith("provisions.md")]
-    with_text = [p for p in prov if "\n\n" in text(files, p)]
-    assert len(with_text) == 1
-    assert "/01-hospodarski-tovarystva/" in with_text[0]
-    assert text(files, with_text[0]).startswith("# § 1. Господарські товариства\n\n1. Загальні")
+    assert not [p for p in prov if "\n\n" in text(files, p)]
+    group = next(p for p in prov if "/01-hospodarski-tovarystva/01-zahalni-polozhennia/" in p)
+    assert text(files, group) == "# 1. Загальні положення\n"
     book = text(files, "codes/civil/01-zahalni-polozhennia/provisions.md")
     assert book.startswith("# Книга перша.")
 

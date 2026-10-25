@@ -109,8 +109,11 @@ def test_civil_book_section_chapter_paragraph(civil):
     par = find(civil, ("book", "1"), ("section", "I"), ("chapter", "8"), ("paragraph", "1"))
     assert par.title == "Господарські товариства"
     assert [a.number for a in articles(par.children)][:3] == ["113", "114", "115"]
-    # unnumbered sub-heading inside § before the first article
-    assert par.provisions == "1. Загальні положення"
+    # «1. Загальні положення» inside § before the first article is a "group" level
+    group = par.children[0]
+    assert isinstance(group, Unit)
+    assert (group.kind, group.number, group.title) == ("group", "1", "Загальні положення")
+    assert par.provisions == ""
 
 
 def test_civil_excluded_article_from_title_note(civil):

@@ -32,7 +32,7 @@ MAX_DIFFS = 5
 _NOTE = re.compile(r"\{[^{}]*\}")
 _APOSTROPHES = re.compile(r"['’ʼ`]")
 _WORD = re.compile(r"[^\W_]+")
-_EXCLUDED_STUB = re.compile(r"^# Стаття [\d-]+\. Виключена\n")
+_EXCLUDED_STUB = re.compile(r"^# Стаття [\d-]+\. (?:Виключена|Втратила чинність)\n")
 _EXCLUDED_LEVEL = re.compile(r"^(виключен[аоий]|виключено)\.?$", re.I)
 _TEXT_KINDS = ("body", "heading", "article_start")
 

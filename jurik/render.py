@@ -15,12 +15,14 @@ from jurik.zakon.paragraphs import ORDINALS
 SOURCE_URL = "https://zakon.rada.gov.ua/laws/show/{}"
 
 UNIT_LABEL = {
+    "final": "",
     "book": "Книга",
     "part": "Частина",
     "section": "Розділ",
     "subsection": "Підрозділ",
     "chapter": "Глава",
     "paragraph": "§",
+    "group": "",
 }
 
 
@@ -48,6 +50,10 @@ def unit_prefix(number: str) -> str:
 
 def unit_dir(unit: Unit) -> str:
     s = slug(unit.title)
+    if not unit.number:  # unnumbered final provisions: "prykintsevi-ta-perekhidni-polozhennia"
+        if not s:
+            raise RenderError(f"unnumbered {unit.kind} without title")
+        return s
     prefix = unit_prefix(unit.number)
     return f"{prefix}-{s}" if s else prefix
 
@@ -62,8 +68,10 @@ def article_file(number: str) -> str:
 
 def unit_heading(unit: Unit) -> str:
     title = unit.title.strip()
-    if unit.kind == "part" and "частина" in title.lower():
+    if not unit.number or (unit.kind == "part" and "частина" in title.lower()):
         return f"# {title}"
+    if unit.kind == "group":  # "# 2. Повне товариство", as in the source
+        return f"# {unit.number}. {title}"
     number = BOOK_ORDINAL.get(unit.number, unit.number) if unit.kind == "book" else unit.number
     head = f"{UNIT_LABEL[unit.kind]} {number}"
     return f"# {head}. {title}" if title else f"# {head}"

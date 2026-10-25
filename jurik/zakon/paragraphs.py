@@ -9,7 +9,11 @@ Structure is recognised by text patterns only:
 
 - headings: ``Книга перша`` / ``КНИГА ПЕРША …``, ``Загальна частина`` / ``Особлива частина``,
   ``Розділ I …`` / ``РОЗДІЛ I. …``, ``Підрозділ 1. …``, ``Глава 1 …`` / ``ГЛАВА 1. …``,
-  ``§ 1. …``. The title is on the same line or, in old editions, in the next paragraph;
+  ``§ 1. …`` (also dotless ``§ 2 Назва``), unnumbered ``ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ``
+  (``final``), unlabelled ``2. Повне товариство`` inside a § right before an article
+  (``group``). The title is on the same line or, in old editions, in the next paragraph.
+  A heading whose title is only an exclusion note (``§ 2. {Параграф 2 … виключено …}``) is a
+  ``note``;
 - article start: ``Стаття 39 - 1 . Назва`` (index with spaces, as OpenData renders
   superscripts) or ``Стаття 39-1. Назва``;
 - editorial notes ``{…}``, possibly spanning several paragraphs;
@@ -92,7 +96,13 @@ _PARAGRAPH = re.compile(rf"^§\s*({_INDEX}){_TAIL}", re.S)
 # "{…}", also "/- {Зміни …, прийняті Законом …}" (pending amendment marker)
 _NOTE_START = re.compile(r"^[/\-\s]*\{")
 _NOTE_RE = re.compile(r"\{[^{}]*\}")
+# unnumbered top-level heading: «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ», «ПЕРЕХІДНІ ПОЛОЖЕННЯ»
+_FINAL = re.compile(
+    r"^(?:ПРИКІНЦЕВІ|ПЕРЕХІДНІ)(?:\s+(?:ТА|І|Й)\s+(?:ПРИКІНЦЕВІ|ПЕРЕХІДНІ))?\s+ПОЛОЖЕННЯ\.?$"
+)
 _EXCLUDED_TITLE = re.compile(r"^(виключен[аоий]|виключено)\.?$", re.I)
+# unlabelled sub-heading inside a § right before an article: «2. Повне товариство»
+_GROUP = re.compile(r"^(\d+)\.\s+([А-ЯІЇЄҐ][^.;:,!?]{0,100})$")
 
 
 def _is_upper(text: str) -> bool:
@@ -100,18 +110,43 @@ def _is_upper(text: str) -> bool:
     return any(c.isalpha() for c in text) and text == text.upper()
 
 
-def _title_ok(dot: str, title: str) -> bool:
+_NUMBERED: tuple[tuple[UnitKind, re.Pattern[str]], ...] = (
+    ("section", _SECTION),
+    ("subsection", _SUBSECTION),
+    ("chapter", _CHAPTER),
+    ("paragraph", _PARAGRAPH),
+)
+
+
+def is_excluded_heading(text: str) -> bool:
+    """A level heading whose title is only an editorial note:
+    «Розділ XVIII - 2 . {Розділ XVIII - 2 виключено …}», «§ 4. {Параграф 4 глави 74 виключено …}».
+    """
+    for _, rx in _NUMBERED:
+        if (m := rx.match(text)) and (title := (m.group(3) or "").strip()):
+            return (
+                title.startswith("{")
+                and not _NOTE_RE.sub("", title).strip()
+                and bool(re.search(r"виключ|втрати", title, re.I))
+            )
+    return False
+
+
+def _title_ok(kind: UnitKind, dot: str, title: str) -> bool:
     """Heading title guard that keeps body sentences like «Розділ V "…" зберігає …» out."""
     if not title:
         return True
     if _is_upper(title) or _EXCLUDED_TITLE.match(title):
         return True
-    # "Підрозділ 1. Особливості …", "§ 1. Господарські товариства"
-    return bool(dot) and title[0].isupper()
+    # "Підрозділ 1. Особливості …", "§ 1. Господарські товариства"; ЦК also has a dotless
+    # "§ 2 Правові наслідки недодержання …" (a body sentence never starts with "§ N")
+    return (bool(dot) or kind == "paragraph") and title[0].isupper()
 
 
 def match_heading(text: str) -> tuple[UnitKind, str, str] | None:
     """Return ``(unit_kind, number, title)`` if ``text`` is a structural heading."""
+    if _FINAL.match(text):
+        return "final", "", text.rstrip(".")
     if m := _BOOK.match(text):
         rest = m.group(2).strip()
         if not rest or _is_upper(rest):
@@ -123,15 +158,10 @@ def match_heading(text: str) -> tuple[UnitKind, str, str] | None:
             return None
         number = "1" if m.group(1).lower() == "загальна" else "2"
         return "part", number, " ".join(f"{m.group(1)} частина".split()).capitalize()
-    for kind, rx in (
-        ("section", _SECTION),
-        ("subsection", _SUBSECTION),
-        ("chapter", _CHAPTER),
-        ("paragraph", _PARAGRAPH),
-    ):
+    for kind, rx in _NUMBERED:
         if m := rx.match(text):
             title = (m.group(3) or "").strip()
-            if not _title_ok(m.group(2), title):
+            if not _title_ok(kind, m.group(2), title):
                 return None
             number = _norm_index(m.group(1))
             if kind == "section":
@@ -245,6 +275,14 @@ def _is_header_text(text: str, title: str) -> bool:
     return text.startswith("(") and text.endswith(")")
 
 
+def _next_text(blocks: list[_Block], i: int) -> str:
+    """Text of the first block from ``i`` on that is not an editorial note ("" at the end)."""
+    for b in blocks[i:]:
+        if b.is_table or not _NOTE_START.match(b.text):
+            return b.text
+    return ""
+
+
 def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> list[Para]:
     """Split edition HTML into classified paragraphs.
 
@@ -267,6 +305,7 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
     note_depth = 0
     note_open = False
     seen_structure = False
+    level: UnitKind | None = None  # kind of the last heading
     i = 0
     while i < len(blocks):
         b = blocks[i]
@@ -286,6 +325,10 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
             kind = "header" if not seen_structure and _is_header_text(text, title) else "body"
             paras.append(Para(text, kind, b.anchor))
             continue
+        if is_excluded_heading(text):
+            # an excluded level leaves only its heading with a note; it holds no text
+            paras.append(Para(text, "note", b.anchor))
+            continue
         if art := match_article(text):
             seen_structure = True
             number, rest = art
@@ -298,13 +341,14 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
         if head := match_heading(text):
             seen_structure = True
             unit_kind, number, htitle = head
+            level = unit_kind
             if not htitle and i < len(blocks):
                 nxt = blocks[i]
                 if (
                     not nxt.is_table
                     and not _NOTE_START.match(nxt.text)
                     and _is_upper(nxt.text)
-                    and not match_heading(nxt.text)
+                    and (not match_heading(nxt.text) or _FINAL.match(nxt.text))
                     and not match_article(nxt.text)
                 ):
                     htitle = nxt.text
@@ -312,6 +356,24 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
                     i += 1
             paras.append(
                 Para(text, "heading", b.anchor, unit_kind=unit_kind, number=number, title=htitle)
+            )
+            continue
+        if (
+            level in ("paragraph", "group")
+            and (m := _GROUP.match(text))
+            and match_article(_next_text(blocks, i))
+        ):
+            # ЦК § 1 «Господарські товариства»: «1. Загальні положення», «2. Повне товариство» …
+            level = "group"
+            paras.append(
+                Para(
+                    text,
+                    "heading",
+                    b.anchor,
+                    unit_kind="group",
+                    number=m.group(1),
+                    title=m.group(2).strip(),
+                )
             )
             continue
         kind = "header" if not seen_structure and _is_header_text(text, title) else "body"

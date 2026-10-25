@@ -422,12 +422,20 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Modify: парсер/рендер по найденным проблемам; новые фикстуры в `tests/fixtures/`
 
 - ⚠️ (Task 9) `jurik parse` без `--all` проверяет только последнюю редакцию; читает только кеш; итог в `report/parse-failures.md` (перезаписывается). Каждый уровень теперь имеет `provisions.md` (минимум заголовок), это меняет число файлов. Inline-примечания `{…}` внутри абзацев остаются в рендере — если решать «примечания не включаются в текст», чистить в рендере/дереве (verify уже их игнорирует)
-- [ ] `jurik fetch --code family && jurik parse --code family --all`: все 62 редакции без `missing`
-- [ ] `jurik parse --code constitution --all`
-- [ ] по одной редакции Податкового (ed20240101) и Цивільного (последняя) без `missing`
-- [ ] каждую найденную проблему парсера зафиксировать фрагментом-фикстурой и тестом (➕ подзадачи сюда)
-- [ ] результаты, время парсинга и список нерешённых случаев в `docs/pilot-parse.md`
-- [ ] run tests - must pass before next task
+- [x] `jurik fetch --code family && jurik parse --code family --all`: все 62 редакции без `missing`
+- [x] `jurik parse --code constitution --all` (10 ok)
+- [x] по одной редакции Податкового (ed20240101) и Цивільного (последняя) без `missing` (+ последняя Податкового ed20260917, скачана одна через `client.edition`)
+- [x] каждую найденную проблему парсера зафиксировать фрагментом-фикстурой и тестом (➕ подзадачи сюда)
+  - [x] ➕ inline-примечания `{…}` убираются из текста статей/заголовков/provisions/preamble/closing (`tree.strip_notes`)
+  - [x] ➕ ЦК: ненумерованные «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ» → новый `UnitKind` `final` (number `""`, закрывает все уровни, папка `prykintsevi-ta-perekhidni-polozhennia/`)
+  - [x] ➕ заголовок исключённого уровня (`Розділ XVIII - 2 . {… виключено …}`, `§ 2. {Параграф 2 … виключено …}`) → `note`
+  - [x] ➕ примечания об исключении с опечатками источника (`{С таттю 115 …}`, `{Cтаттю 990 …}` латинская C) и утратившая силу статья (`{Стаття 209 втратила чинність …}` → `# Стаття 209. Втратила чинність`)
+  - [x] ➕ ЦК: `§ 2 Правові наслідки …` без точки распознаётся как заголовок (был приклеен к ст. 214)
+  - [x] ➕ ЦК § 1 «Господарські товариства»: подзаголовки `1. Загальні положення` … `5. Акціонерне товариство` → новый `UnitKind` `group` (ниже §; были приклеены к концу предыдущей статьи)
+  - фикстуры `tests/fixtures/zakon/435-15_ed20260805_pilot_fragment.html`, `2755-17_ed20260917_pilot_fragment.html`, тесты `tests/test_pilot_cases.py`
+- [x] результаты, время парсинга и список нерешённых случаев в `docs/pilot-parse.md`
+- [x] run tests - must pass before next task
+- ✅ итог (Task 10): все проверенные редакции проходят (Сімейний 62/62, Конституція 10/10, ПК ed20240101 + ed20260917, ЦК ed20260805), ~50 мс на редакцию Сімейного, ~0.7 с на ПК. Проверка слов проходила и до исправлений: все найденные проблемы структурные (текст не в том файле/уровне), их ловили только ручной просмотр и сканы рендера. `model.UnitKind` теперь `final | book | part | section | subsection | chapter | paragraph | group`; `tree.RANK`: final=-1, group=6; `render.unit_heading`: final → `# TITLE`, group → `# N. TITLE`. Нерешённое: одиночные метки пунктов после удаления примечаний (`174.5.`, 5 случаев в ПК) оставлены намеренно
 
 ### Task 11: Клиент открытых данных Рады и индекс законов
 
@@ -452,6 +460,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `jurik/build/__init__.py`, `jurik/build/changeset.py`, `jurik/build/fastimport.py`, `jurik/build/history.py`, `jurik/build/message.py`
 - Create: `tests/test_changeset.py`, `tests/test_fastimport.py`, `tests/test_history.py`, `tests/test_message.py`
 
+- ⚠️ (Task 10) у уровней есть два новых вида: `final` (ненумерованные «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ» ЦК, папка без числового префикса) и `group` (подзаголовки `N. Назва` внутри § ЦК); inline-примечания `{…}` из текста уже вырезаны деревом, так что правки одних примечаний не меняют файлы
 - ⚠️ (Task 8) `render(trees, code, adopted=..., status=...)` уже отдаёт пути от корня репозитория (`codes/<slug>/...`), для КУпАП передавать список из двух деревьев (последние редакции каждой части на дату); repealed = удалить все пути с префиксом `codes/<slug>/`
 - [ ] `changeset.diff(prev_files, new_files) -> ChangeSet(modified: dict[path, bytes], deleted: set[path])`
 - [ ] `fastimport.py`: `Stream` с дедупликацией blob'ов по sha256 (mark на содержимое), `commit(ref, parents, author, committer, message, changeset)`; `run(stream, repo_path)` создаёт репозиторий и прогоняет `git fast-import`; timestamp через `zoneinfo("Europe/Kyiv")` 12:00
