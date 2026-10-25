@@ -84,3 +84,5 @@ class LawMeta:
     signed: date | None
     status: LawStatus
     display_number: str = ""  # act number as displayed ("2856-VI"), "" if not a law
+    card_url: str = ""  # bill card on rada.gov.ua
+    phase_date: date | None = None  # date of the current phase (outcome of a closed bill)

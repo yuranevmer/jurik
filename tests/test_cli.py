@@ -136,3 +136,63 @@ def test_cli_build_full_creates_bill_branch(tmp_path, fixtures_dir, monkeypatch)
         check=True,
     ).stdout.split()
     assert sorted(refs) == ["bill/law/407-15", "main"]
+
+
+def test_cli_build_rejected_bills_limit(tmp_path, fixtures_dir, monkeypatch):
+    import json
+    import subprocess
+    from datetime import date
+
+    from jurik.model import BillRef, LawMeta
+    from jurik.rada.index import LawIndex
+    from jurik.zakon.http import ZakonClient, write_gz
+
+    monkeypatch.chdir(tmp_path)
+    client = ZakonClient(tmp_path / "cache")
+    card = {
+        "nreg": "2947-14",
+        "nazva": "Сімейний кодекс України",
+        "orgdat": 20020110,
+        "eds": [{"datred": 20020110, "pidstava": ""}],
+    }
+    write_gz(client.card_path("2947-14"), json.dumps(card))
+    html = (fixtures_dir / "zakon" / "2947-14_ed20020110_print.html").read_text("utf-8")
+    write_gz(client.edition_path("2947-14", "20020110"), html)
+    client.close()
+
+    def bill(n, registered):
+        title = "Про внесення змін до Сімейного кодексу України"
+        return LawMeta("", title, BillRef(9, n), [], registered, None, None, None, "rejected")
+
+    index = LawIndex(
+        bills={
+            BillRef(9, "2-д"): bill("2-д", date(2021, 1, 1)),
+            BillRef(9, "1"): bill("1", date(2020, 1, 1)),
+        }
+    )
+
+    class Texts:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def fetch(self, b):
+            return f"Текст {b.number}"
+
+    monkeypatch.setattr(cli, "build_index", lambda cache: index)
+    monkeypatch.setattr(cli, "make_bill_texts", lambda cache: Texts())
+    result = CliRunner().invoke(
+        main, ["build", "--code", "family", "--bills-limit", "1", "--out", "laws"]
+    )
+    assert result.exit_code == 0, result.output
+    assert "2 commits, 1 branches, 0 merges" in result.output
+    assert "check_repo: 0 violations" in result.output
+    show = subprocess.run(
+        ["git", "-C", "laws", "show", "bill/9/1:bills/9/1.md"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert show.endswith("---\n\nТекст 1\n")

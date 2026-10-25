@@ -28,8 +28,8 @@ def rada_cache(tmp_path):
 
     root = tmp_path / "cache"
     for src in (FIXTURES / "rada").rglob("*"):
-        if not src.is_file():
-            continue
+        if not src.is_file() or not src.parent.name.startswith("skl"):
+            continue  # bill.* document fixtures are not open data files
         dest_dir = root / "rada" / src.parent.name
         dest_dir.mkdir(parents=True, exist_ok=True)
         if src.suffix == ".json":

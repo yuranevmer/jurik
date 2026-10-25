@@ -1,5 +1,6 @@
 import gzip
 import json
+import subprocess
 from datetime import date
 
 import pytest
@@ -429,3 +430,112 @@ def test_branch_never_starts_before_code_exists(tmp_path):
     )
     assert [s.kind for s in steps] == ["commit", "commit", "branch", "merge"]
     assert steps[2].parents == (1,)  # family initial, not the constitution-only commit
+
+
+def rejected(number, registered, status="rejected", title="Про внесення змін до Сімейного кодексу"):
+    return LawMeta(
+        "",
+        title,
+        BillRef(4, number),
+        [KOVAL, PETRENKO],
+        registered,
+        None,
+        None,
+        None,
+        status,
+        "",
+        card_url=f"https://rada/card/{number}",
+        phase_date=date(2006, 3, 1) if status != "pending" else None,
+    )
+
+
+class FakeTexts:
+    def __init__(self, texts):
+        self.texts = texts
+        self.calls = []
+
+    def fetch(self, bill):
+        self.calls.append(bill)
+        return self.texts.get(bill.number)
+
+
+def rejected_history(tmp_path, *, bills=True, bills_limit=None, texts=None):
+    family = Code("family", ("2947-14",), "Сімейний кодекс України", (r"сімейн\w* кодекс",))
+    load = Loader()
+    eds = [
+        load.add(ed("2947-14", date(2002, 1, 10)), ("1", "a0")),
+        load.add(ed("2947-14", date(2003, 7, 1), "100-15"), ("1", "a1")),
+        load.add(ed("2947-14", date(2005, 1, 1)), ("1", "a2")),
+    ]
+    by_law = {"100-15": law("100-15", BillRef(4, "1234"), date(2003, 3, 1), date(2003, 6, 1))}
+    index = LawIndex(by_law=by_law)
+    if bills:
+        index.bills = {
+            BillRef(4, "5555-д"): rejected("5555-д", date(2004, 2, 1)),
+            BillRef(4, "1000"): rejected("1000", date(2001, 5, 1), status="pending"),
+            BillRef(4, "7777"): rejected("7777", date(2004, 3, 1), title="Про інше"),
+            BillRef(4, "1234"): by_law["100-15"],
+        }
+    steps = plan_full(
+        [CodeSource(family, {"2947-14": eds})],
+        load,
+        index=index,
+        bill_texts=texts,
+        bills_limit=bills_limit,
+    )
+    stream = Stream()
+    write_steps(steps, stream)
+    repo = tmp_path / ("laws-bills" if bills else "laws")
+    run(stream, repo)
+    return steps, repo
+
+
+def test_rejected_bill_branch_without_merge(tmp_path):
+    texts = FakeTexts({"5555-д": "Текст законопроекту.\n\nДругий абзац."})
+    steps, repo = rejected_history(tmp_path, texts=texts)
+    branches = [s for s in steps if s.reason == "bill"]
+    # earliest registered first; adopted bills and bills not naming the code are skipped
+    assert [s.ref for s in branches] == ["bill/4/1000", "bill/4/5555-d"]
+    assert texts.calls == [BillRef(4, "1000"), BillRef(4, "5555-д")]
+    assert all(s.kind == "branch" for s in branches)
+    assert not any(s.branch in {b.ref for b in branches} for s in steps if s.kind == "merge")
+    # base = main commit in force on registration day; never before the code exists
+    assert branches[0].parents == (0,)  # registered 2001, family initial is 2002
+    assert steps[branches[1].parents[0]].date == date(2003, 7, 1)
+    refs = git(repo, "for-each-ref", "--format=%(refname:short)").split()
+    assert "bill/4/5555-d" in refs and "bill/4/1000" in refs
+    for ref in ("bill/4/5555-d", "bill/4/1000"):
+        cmd = ["git", "-C", str(repo), "merge-base", "--is-ancestor", ref, "main"]
+        assert subprocess.run(cmd).returncode == 1  # never merged into main
+    changed = git(repo, "diff", "--name-only", "bill/4/5555-d^", "bill/4/5555-d").split()
+    assert changed == ["bills/4/5555-d.md"]
+    content = tree_files(repo, "bill/4/5555-d")["bills/4/5555-d.md"].decode()
+    assert content.startswith("# Законопроект № 5555-д (IV скликання)\n")
+    assert "- Статус: відхилено (2006-03-01)" in content
+    assert content.endswith("---\n\nТекст законопроекту.\n\nДругий абзац.\n")
+    stub = tree_files(repo, "bill/4/1000")["bills/4/1000.md"].decode()
+    assert stub.endswith("Текст недоступний. Див. картку законопроекту: https://rada/card/1000\n")
+    msg = git(repo, "log", "-1", "--format=%an|%ad|%B", "--date=short", "bill/4/5555-d")
+    assert msg.startswith("Олена Коваль|2004-02-01|Законопроект № 5555-д: Про внесення змін")
+    trailers = parse_trailers(msg)
+    assert ("Status", "rejected") in trailers
+    assert ("Status-date", "2006-03-01") in trailers
+    assert ("Bill", "4/5555-д") in trailers
+    assert not any(k == "In-force" for k, _ in trailers)
+
+
+def test_rejected_bills_leave_main_unchanged(tmp_path):
+    with_bills, repo1 = rejected_history(tmp_path, bills=True)
+    without, repo2 = rejected_history(tmp_path, bills=False)
+    assert [s.message for s in with_bills if s.ref == "main"] == [
+        s.message for s in without if s.ref == "main"
+    ]
+    assert git(repo1, "rev-parse", "main") == git(repo2, "rev-parse", "main")
+    assert "bills/" not in git(repo1, "ls-tree", "-r", "--name-only", "main")
+
+
+def test_bills_limit(tmp_path):
+    steps, _ = rejected_history(tmp_path, bills_limit=1)
+    assert [s.ref for s in steps if s.reason == "bill"] == ["bill/4/1000"]
+    steps, _ = rejected_history(tmp_path, bills_limit=0)
+    assert not [s for s in steps if s.reason == "bill"]

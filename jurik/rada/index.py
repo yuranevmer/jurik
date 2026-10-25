@@ -295,6 +295,8 @@ class _Bill:
     act_number: str = ""
     adopted: date | None = None
     signed: date | None = None
+    url: str = ""
+    phase_date: date | None = None
 
 
 def _csv_bills(cache: Path, n: int) -> Iterator[_Bill]:
@@ -337,6 +339,8 @@ def _csv_bills(cache: Path, n: int) -> Iterator[_Bill]:
             act_number=act.get("act_number", "").strip(),
             adopted=parse_day(act.get("act_date")),
             signed=signed.get(r["bill_id"]),
+            url=(r.get("url") or "").strip(),
+            phase_date=parse_day(r.get("currentPhase_date")),
         )
 
 
@@ -368,16 +372,20 @@ def _billinfo_bills(cache: Path) -> Iterator[_Bill]:
                 if "з підписом від президента" in (p.get("title") or "").lower()
             ]
             signed = [d for d in signed if d]
+            phase = b.get("currentPhase") or {}
+            passed = [d for p in b.get("passings") or [] if (d := parse_day(p.get("date")))]
             yield _Bill(
                 ref=BillRef(conv, str(b["registrationNumber"]).strip()),
                 title=b.get("name") or "",
                 kind=b.get("name") or "",
-                phase=(b.get("currentPhase") or {}).get("status") or "",
+                phase=phase.get("status") or "",
                 registered=parse_day(b.get("registrationDate")),
                 initiators=_dedupe(_billinfo_person(e) for e in b.get("initiators") or []),
                 act_number=(b.get("actNumber") or "").strip(),
                 adopted=parse_day(b.get("actDate")),
                 signed=max(signed) if signed else None,
+                url=(b.get("url") or "").strip(),
+                phase_date=parse_day(phase.get("date")) or (max(passed) if passed else None),
             )
         except (KeyError, TypeError, AttributeError) as e:
             raise RadaError(f"{path}: bill #{i} is malformed ({e!r})") from e
@@ -421,6 +429,8 @@ def build_index(cache: Path, convocations: Iterable[int] = CONVOCATIONS) -> LawI
                 signed=bill.signed if nreg else None,
                 status=status_of(bill.phase, bool(nreg)),
                 display_number=display_act(bill.act_number) if nreg else "",
+                card_url=bill.url,
+                phase_date=bill.phase_date,
             )
             index.bills.setdefault(bill.ref, meta)
             if nreg:

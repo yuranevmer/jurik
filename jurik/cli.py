@@ -20,6 +20,7 @@ from jurik.build.history import (
 )
 from jurik.config import Code, ConfigError, Paths, get_code, load_codes
 from jurik.parse import EditionCheck, failures_report, parse_code
+from jurik.rada.billtext import BillTexts
 from jurik.rada.client import CONVOCATIONS, RadaClient, RadaError
 from jurik.rada.index import build_index
 from jurik.rada.match import coverage_report
@@ -37,6 +38,11 @@ def make_zakon_client(cache: Path, *, refetch: bool = False) -> ZakonClient:
 def make_rada_client(cache: Path, *, refetch: bool = False) -> RadaClient:
     """Factory for the Rada open data client (patched in tests)."""
     return RadaClient(cache, refetch=refetch)
+
+
+def make_bill_texts(cache: Path) -> BillTexts:
+    """Factory for bill text downloads (patched in tests)."""
+    return BillTexts(cache, echo=lambda msg: click.echo(msg, err=True))
 
 
 def _not_implemented(name: str) -> None:
@@ -145,7 +151,12 @@ def parse(code_slug: str | None, edition: str | None, all_editions: bool) -> Non
 @main.command()
 @click.option("--code", "code_slugs", multiple=True, help="Code slug (repeatable); default all.")
 @click.option("--linear", is_flag=True, help="Linear history without bill branches.")
-@click.option("--bills-limit", type=int, help="Limit number of bill branches.")
+@click.option(
+    "--bills-limit",
+    type=click.IntRange(min=0),
+    help="Max branches of bills that did not become law (earliest first); texts are "
+    "downloaded into cache/rada/bills/.",
+)
 @click.option("--out", type=click.Path(path_type=Path), default=Path("build/laws"))
 def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, out: Path) -> None:
     """Build the laws git repository from cached editions (recreated from scratch)."""
@@ -164,14 +175,23 @@ def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, ou
     try:
         with make_zakon_client(paths.cache) as client:
             sources = sources_from_cache(selected, client)
-            plan = plan_linear if linear else plan_full
-            steps = plan(sources, cached_tree_loader(client), index=index)
+            if linear:
+                steps = plan_linear(sources, cached_tree_loader(client), index=index)
+            else:
+                with make_bill_texts(paths.cache) as texts:
+                    steps = plan_full(
+                        sources,
+                        cached_tree_loader(client),
+                        index=index,
+                        bill_texts=texts,
+                        bills_limit=bills_limit,
+                    )
             prints = latest_prints(sources, client)
         stream = Stream()
         write_steps(steps, stream)
         run(stream, out)
         violations = check_repo(out, steps, prints)
-    except (BuildError, FastImportError, RenderError, CheckError) as e:
+    except (BuildError, FastImportError, RenderError, CheckError, RadaError) as e:
         raise click.ClickException(str(e)) from e
     took = time.monotonic() - started
     branches = len({s.ref for s in steps if s.kind == "branch"})

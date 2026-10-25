@@ -219,3 +219,43 @@ def branch_message(
         if p.slug
     ]
     return format_message(subject, trailers, body_for(bases, metas), require_in_force=False)
+
+
+STATUS_LABELS = {
+    "rejected": "відхилено",
+    "withdrawn": "відкликано",
+    "removed": "знято з розгляду",
+    "pending": "на розгляді",
+    "adopted": "прийнято",
+}
+
+
+def status_label(status: str) -> str:
+    return STATUS_LABELS.get(status, status)
+
+
+def rejected_bill_message(*, meta: LawMeta, titles: Sequence[str]) -> str:
+    """Message of the only commit of a bill that never became law (a branch without merge).
+
+    ``Status:`` = ``LawMeta.status``, ``Status-date:`` = date of its current phase (the
+    outcome for closed bills), when known.
+    """
+    assert meta.bill is not None
+    subject = f"Законопроект № {meta.bill.number}"
+    title = law_title(meta)
+    subject += f": {title}" if title else f" ({', '.join(titles)})"
+    label = status_label(meta.status)
+    body = f"Статус: {label}" + (f", {meta.phase_date.isoformat()}" if meta.phase_date else "")
+    body += f".\nСтосується: {', '.join(titles)}." if titles else "."
+    trailers: list[Trailer] = [("Bill", f"{meta.bill.convocation}/{meta.bill.number}")]
+    if meta.registered:
+        trailers.append(("Registered", meta.registered.isoformat()))
+    trailers.append(("Status", meta.status))
+    if meta.phase_date:
+        trailers.append(("Status-date", meta.phase_date.isoformat()))
+    if meta.card_url:
+        trailers.append(("Source", meta.card_url))
+    trailers += [
+        ("Co-authored-by", f"{p.name} <{person_email(p)}>") for p in meta.initiators[1:] if p.slug
+    ]
+    return format_message(subject, trailers, body, require_in_force=False)

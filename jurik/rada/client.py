@@ -148,13 +148,17 @@ class RadaClient:
 
     def get(self, url: str) -> bytes:
         """GET with rate limit and retries on 5xx/timeouts/transport errors."""
+        return self.request(url).content
+
+    def request(self, url: str, headers: dict[str, str] | None = None) -> httpx.Response:
+        """``get`` returning the whole response (headers included); non-200 → ``RadaError``."""
         last_error = ""
         for attempt in range(self.retries + 1):
             if attempt:
                 self._sleep(self.backoff * 2 ** (attempt - 1))
             self._throttle()
             try:
-                resp = self._http.get(url)
+                resp = self._http.get(url, headers=headers)
             except httpx.TimeoutException as e:
                 last_error = f"timeout: {e}"
                 continue
@@ -166,7 +170,7 @@ class RadaClient:
                 continue
             if resp.status_code != 200:
                 raise RadaError(f"{url}: HTTP {resp.status_code}")
-            return resp.content
+            return resp
         raise RadaError(f"{url}: failed after {self.retries + 1} attempts ({last_error})")
 
 

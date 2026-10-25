@@ -13,22 +13,29 @@ from bisect import bisect_right
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Literal
+from typing import Literal, Protocol
 
 from jurik.build.changeset import ChangeSet, diff
 from jurik.build.fastimport import Ident, Stream
-from jurik.build.message import branch_message, person_email, step_message
-from jurik.build.refs import bill_ref, law_ref
+from jurik.build.message import (
+    branch_message,
+    person_email,
+    rejected_bill_message,
+    status_label,
+    step_message,
+)
+from jurik.build.refs import bill_ref, law_ref, ref_safe
 from jurik.config import Code
-from jurik.model import DocTree, Edition, LawMeta
+from jurik.model import BillRef, DocTree, Edition, LawMeta
 from jurik.rada.index import LawIndex
+from jurik.rada.match import bills_for_code
 from jurik.render import render
 from jurik.zakon.card import CardParseError, base_kind, parse_card
 from jurik.zakon.http import ZakonClient, read_gz
 from jurik.zakon.paragraphs import extract_paragraphs
 from jurik.zakon.tree import build_tree
 
-Reason = Literal["initial", "law", "multiple", "court", "unknown", "other", "repealed"]
+Reason = Literal["initial", "law", "multiple", "court", "unknown", "other", "repealed", "bill"]
 
 RADA = ("Верховна Рада України", "rada@laws.invalid")
 COURT = ("Конституційний Суд України", "ccu@laws.invalid")
@@ -46,6 +53,14 @@ MAIN = "main"
 
 TreeLoader = Callable[[Edition], DocTree]
 StepKind = Literal["commit", "branch", "merge"]
+UNAVAILABLE = "Текст недоступний."
+ROMAN = {3: "III", 4: "IV", 5: "V", 6: "VI", 7: "VII", 8: "VIII", 9: "IX"}
+
+
+class BillTextSource(Protocol):
+    """``jurik.rada.billtext.BillTexts`` or a test double."""
+
+    def fetch(self, bill: BillRef) -> str | None: ...
 
 
 @dataclass
@@ -252,6 +267,8 @@ def plan_full(
     load_tree: TreeLoader,
     *,
     index: LawIndex | None = None,
+    bill_texts: BillTextSource | None = None,
+    bills_limit: int | None = None,
 ) -> list[Step]:
     """History of ``main`` where every step based on a law is a merge of a bill branch.
 
@@ -262,6 +279,11 @@ def plan_full(
     and carries only the step's change set, so ``git diff bill^ bill`` shows just this law.
     The merge = ``main`` head + the same change set. A later stage of the same law adds a
     commit to the same branch and merges it again. Other steps stay linear commits.
+
+    With ``index``, every bill concerning a code that did not become law (``bills_for_code``,
+    status ≠ adopted) gets a branch with one commit adding ``bills/<conv>/<n>.md`` (text from
+    ``bill_texts`` or a «Текст недоступний» stub), never merged; ``bills_limit`` caps their
+    number (earliest registered first). These steps come after all steps of ``main``.
     """
     sources = list(sources)
     by_slug = {s.code.slug: s for s in sources}
@@ -364,7 +386,113 @@ def plan_full(
             )
         )
         main.append((g.date, i))
+    if index is not None and main:
+        _plan_rejected(steps, main, born, sources, index, set(branches), bill_texts, bills_limit)
     return steps
+
+
+def rejected_bills(
+    sources: Iterable[CodeSource], index: LawIndex
+) -> list[tuple[LawMeta, list[str]]]:
+    """Bills that did not become law concerning any of the codes, with the slugs of those
+    codes; ordered by registration date (unknown last), then convocation and number."""
+    found: dict[BillRef, tuple[LawMeta, list[str]]] = {}
+    for src in sources:
+        bases = [b for eds in src.editions.values() for ed in eds for b in ed.bases]
+        for meta in bills_for_code(index, src.code, bases):
+            if meta.status == "adopted" or meta.bill is None:
+                continue
+            found.setdefault(meta.bill, (meta, []))[1].append(src.code.slug)
+    return sorted(
+        found.values(),
+        key=lambda t: (t[0].registered or date.max, t[0].bill.convocation, t[0].bill.number),
+    )
+
+
+def bill_path(bill: BillRef) -> str:
+    """``bills/<conv>/<n>.md`` with the number spelled as in the branch name (ASCII, like
+    every other path in the repository): ``1234-д`` → ``bills/4/1234-d.md``."""
+    return f"bills/{bill.convocation}/{ref_safe(bill.number)}.md"
+
+
+def bill_markdown(meta: LawMeta, text: str | None) -> str:
+    """``bills/<conv>/<n>.md``: heading, metadata list, then the text or a stub with a link."""
+    assert meta.bill is not None
+    conv = ROMAN.get(meta.bill.convocation, str(meta.bill.convocation))
+    lines = [f"# Законопроект № {meta.bill.number} ({conv} скликання)", ""]
+    if meta.law_title:
+        lines += [" ".join(meta.law_title.split()), ""]
+    if meta.registered:
+        lines.append(f"- Зареєстровано: {meta.registered.isoformat()}")
+    if meta.initiators:
+        lines.append(f"- Ініціатори: {', '.join(p.name for p in meta.initiators)}")
+    status = status_label(meta.status)
+    if meta.phase_date:
+        status += f" ({meta.phase_date.isoformat()})"
+    lines.append(f"- Статус: {status}")
+    if meta.card_url:
+        lines.append(f"- Картка: {meta.card_url}")
+    lines += ["", "---", ""]
+    if text and text.strip():
+        lines.append(text.strip())
+    else:
+        stub = UNAVAILABLE
+        if meta.card_url:
+            stub += f" Див. картку законопроекту: {meta.card_url}"
+        lines.append(stub)
+    return "\n".join(lines) + "\n"
+
+
+def _plan_rejected(
+    steps: list[Step],
+    main: list[tuple[date, int]],
+    born: dict[str, int],
+    sources: list[CodeSource],
+    index: LawIndex,
+    used_refs: set[str],
+    bill_texts: BillTextSource | None,
+    limit: int | None,
+) -> None:
+    """One branch commit per bill that never became law, appended after ``main``'s steps:
+    ``bills/<conv>/<n>.md`` on top of the ``main`` commit in force on its registration day
+    (never before the initial commit of a code it concerns); never merged."""
+    titles = {s.code.slug: s.code.title for s in sources}
+    dates = [d for d, _ in main]
+    count = 0
+    for meta, slugs in rejected_bills(sources, index):
+        if limit is not None and count >= limit:
+            break
+        assert meta.bill is not None
+        ref = bill_ref(meta.bill)
+        if ref in used_refs:  # another number with the same ref name (case, «/»)
+            continue
+        used_refs.add(ref)
+        count += 1
+        when = meta.registered
+        pos = bisect_right(dates, when) - 1 if when else len(main) - 1
+        pos = max([pos, 0, *(born.get(s, 0) for s in slugs)])
+        base = main[pos][1]
+        text = bill_texts.fetch(meta.bill) if bill_texts is not None else None
+        content = bill_markdown(meta, text).encode("utf-8")
+        author = _initiator(meta, when or main[pos][0])
+        code_titles = [titles[s] for s in slugs]
+        steps.append(
+            Step(
+                author.when,
+                "bill",
+                (),
+                [],
+                slugs,
+                ChangeSet(modified={bill_path(meta.bill): content}),
+                author,
+                author,
+                rejected_bill_message(meta=meta, titles=code_titles),
+                ref=ref,
+                parents=(base,),
+                kind="branch",
+                stage=1,
+            )
+        )
 
 
 def write_steps(steps: Iterable[Step], stream: Stream) -> int | None:
