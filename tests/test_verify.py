@@ -210,7 +210,7 @@ def test_cli_parse_failures_written_to_report(parse_env):
     tmp_path, client = parse_env
     html = FAMILY.read_text(encoding="utf-8")
     # an article paragraph that the tree cannot place twice -> TreeError for one edition
-    write_gz(client.edition_path("2947-14", "20020110"), html.replace("Стаття 2.", "Стаття 1.", 1))
+    write_gz(client.edition_path("2947-14", "20020110"), html.replace("Стаття 3.", "Стаття 1.", 1))
     result = CliRunner().invoke(cli.main, ["parse", "--code", "family", "--all"])
     assert result.exit_code == 1
     report = (tmp_path / "report" / "parse-failures.md").read_text(encoding="utf-8")

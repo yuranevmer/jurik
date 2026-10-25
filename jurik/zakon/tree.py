@@ -108,6 +108,7 @@ class _Builder:
         self.article_body: list[str] = []
         self.article_notes: list[str] = []
         self.seen_articles: dict[str, int] = {}
+        self.last_article: Article | None = None
 
     # -- containers --
 
@@ -169,13 +170,18 @@ class _Builder:
         self._close_article()
         if p.number in self.seen_articles and self.stack and self._lead_articles_to_preamble():
             self.seen_articles = {}
-        if p.number in self.seen_articles:
+        variant = 0
+        last = self.last_article
+        if p.number in self.seen_articles and last is not None and last.number == p.number:
+            # consecutive articles with one number: a real collision in the source
+            variant = max(last.variant, 1) + 1
+        elif p.number in self.seen_articles:
             raise TreeError(
                 f"duplicate article {p.number} at paragraph {pos}"
                 f"{f' (#{p.anchor})' if p.anchor else ''}, "
                 f"first at paragraph {self.seen_articles[p.number]}"
             )
-        self.seen_articles[p.number] = pos
+        self.seen_articles.setdefault(p.number, pos)
         title = p.title
         excluded = bool(_EXCLUDED_WORD.match(title))
         if not excluded and (stub := _exclusion(title, p.number)):
@@ -184,8 +190,9 @@ class _Builder:
             self.article_notes.append(title)
             title = stub[0]
         self.article = Article(
-            number=p.number, title=strip_notes(title), body="", excluded=excluded
+            number=p.number, title=strip_notes(title), body="", excluded=excluded, variant=variant
         )
+        self.last_article = self.article
         self._siblings().append(self.article)
 
     def _lead_articles_to_preamble(self) -> bool:

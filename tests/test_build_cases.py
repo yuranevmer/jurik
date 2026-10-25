@@ -20,6 +20,7 @@ ELECTORAL = "396-20_ed20261022_build_fragment.html"
 CUSTOMS = "4495-17_ed20260917_build_fragment.html"
 LAND = "2768-14_ed20261016_build_fragment.html"
 LABOUR = "322-08_ed19960723_build_fragment.html"
+ADMIN_PROCEDURE = "2747-15_ed20170101_build_fragment.html"
 
 
 def paras_of(name: str) -> list[Para]:
@@ -148,12 +149,6 @@ def test_labour_enacting_act_articles_go_to_preamble():
     assert res.ok, res.missing[:5]
 
 
-def test_duplicate_article_without_levels_still_fails():
-    p = Para("Стаття 1. Текст", "article_start", "", number="1", title="Текст")
-    with pytest.raises(ValueError, match="duplicate article 1"):
-        tree_of([p, p], "x")
-
-
 @pytest.mark.parametrize(
     ("text", "number", "title"),
     [
@@ -167,3 +162,27 @@ def test_match_heading_roman_chapter(text, number, title):
     kind, num, ttl = match_heading(text)
     assert (kind, num) == ("chapter", number)
     assert ttl.startswith(title)
+
+
+def test_admin_procedure_repeated_article_number_kept_as_variant():
+    # КАС 2016–2017: two laws both added «Стаття 183-7»; both articles are kept
+    paras = paras_of(ADMIN_PROCEDURE)
+    tree = tree_of(paras, "2747-15")
+    dup = [a for a in articles(tree) if a.number == "183-7"]
+    assert [a.variant for a in dup] == [0, 2]
+    assert dup[0].title.startswith("Особливості провадження у справах щодо гарантованого")
+    assert dup[1].title.startswith("Особливості провадження у справах за адміністративними")
+    files = render(tree, Code("admin-procedure", ("2747-15",), "КАС"))
+    names = sorted(p.rsplit("/", 1)[1] for p in files if "art-0183-7" in p)
+    assert names == ["art-0183-7.md", "art-0183-7_2.md"]
+    second = next(v for p, v in files.items() if p.endswith("art-0183-7_2.md")).decode()
+    assert second.startswith("# Стаття 183-7. Особливості провадження у справах за адміні")
+    res = verify_paragraphs(paras, files)
+    assert res.ok, res.missing[:5]
+
+
+def test_repeated_article_number_after_other_article_still_fails():
+    a = Para("Стаття 1. А", "article_start", "", number="1", title="А")
+    b = Para("Стаття 2. Б", "article_start", "", number="2", title="Б")
+    with pytest.raises(ValueError, match="duplicate article 1"):
+        tree_of([a, b, a], "x")

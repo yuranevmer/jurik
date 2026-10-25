@@ -34,6 +34,9 @@ class Article:
     title: str
     body: str  # markdown
     excluded: bool = False
+    # 2, 3, … for a repeated number the source really has (two laws both added «Стаття 183-7»
+    # to КАС in 2016): rendered as art-0183-7_2.md, the heading keeps the source number
+    variant: int = 0
 
 
 @dataclass

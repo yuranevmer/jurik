@@ -98,7 +98,10 @@ def _put(files: dict[str, bytes], path: str, content: bytes) -> None:
 def _render_items(items: list[Unit | Article], base: str, files: dict[str, bytes]) -> None:
     for item in items:
         if isinstance(item, Article):
-            _put(files, f"{base}/{article_file(item.number)}", article_text(item))
+            name = article_file(item.number)
+            if item.variant:
+                name = name.removesuffix(".md") + f"_{item.variant}.md"
+            _put(files, f"{base}/{name}", article_text(item))
             continue
         path = f"{base}/{unit_dir(item)}"
         _put_level(files, f"{path}/provisions.md", unit_heading(item), item.provisions)
