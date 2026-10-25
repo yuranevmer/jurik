@@ -311,12 +311,13 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `jurik/zakon/__init__.py`, `jurik/zakon/http.py`
 - Create: `tests/test_zakon_http.py`
 
-- [ ] `ZakonClient.get(url) -> str`: браузерный User-Agent, таймаут 60 с, retry 3 раза с экспоненциальной паузой на 5xx/таймаут, минимальный интервал между запросами 2.5 с
-- [ ] кеш на диске gzip: `cache/zakon/<safe_id>/card.html.gz`, `cache/zakon/<safe_id>/ed<YYYYMMDD>.html.gz`; `safe_id` = zakon_id с `/` → `_`; при наличии файла сеть не трогается, `refetch=True` перекачивает
-- [ ] распознавать страницу-ошибку zakon (403, «Документ не знайдено», капча) и не класть её в кеш
+- [x] `ZakonClient.get(url) -> str`: браузерный User-Agent, таймаут 60 с, retry 3 раза с экспоненциальной паузой на 5xx/таймаут, минимальный интервал между запросами 2.5 с
+- [x] кеш на диске gzip: `cache/zakon/<safe_id>/card.html.gz`, `cache/zakon/<safe_id>/ed<YYYYMMDD>.html.gz`; `safe_id` = zakon_id с `/` → `_`; при наличии файла сеть не трогается, `refetch=True` перекачивает
+- [x] распознавать страницу-ошибку zakon (403, «Документ не знайдено», капча) и не класть её в кеш
 - ⚠️ (Task 2) есть официальный API «Законодавства України»: `https://data.rada.gov.ua/laws/card/<nreg>.json` (список редакций с підставами в виде nreg, `datred`, `podid`) и `https://data.rada.gov.ua/laws/show/<nreg>/ed<YYYYMMDD>` (HTML редакции), требует `User-Agent: OpenData`, без него 302; слэш в nreg не кодировать (`%2F` → 404). Решить в начале Task 3, брать ли его вместо скрейпинга zakon (рекомендуется: стабильнее разметка и формат). `.txt`-версия теряет индексы статей (`39-1` → `391`), не использовать
-- [ ] write tests с `httpx.MockTransport`: попадание в кеш, промах, retry на 503, не кешируется 403, интервал соблюдается (замокать sleep), gzip-файл читается обратно
-- [ ] run tests - must pass before next task
+- [x] write tests с `httpx.MockTransport`: попадание в кеш, промах, retry на 503, не кешируется 403, интервал соблюдается (замокать sleep), gzip-файл читается обратно
+- [x] run tests - must pass before next task
+- ✅ решение (Task 3): основной источник = OpenData API (`ZakonClient(source="opendata")` по умолчанию: `User-Agent: OpenData`, карточка `card.json.gz`, редакция `ed<YYYYMMDD>.html.gz` с data.rada.gov.ua). Скрейпинг zakon оставлен как `source="zakon"` (браузерный UA, `card.html.gz`, `ed<YYYYMMDD>.print.html.gz`). Редиректы не следуются (302 без UA = ошибка), 403/404/302 не ретраятся и не кешируются
 
 ### Task 4: Парсер карточки документа: список редакций
 
@@ -327,6 +328,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 
 - [ ] `parse_card(html, zakon_id) -> CardInfo(title, adopted, status, editions: list[Edition])`: из блока истории выдернуть все `ed<YYYYMMDD>` с датой, типом («перша редакція», «Редакція, підстава - N, M»), списком підстав; нормализовать номера законов в вид `2856-VI`; `kind` = `court` для `18-рп/2011`-подобных, `law` для законов, `other` для остального
 - [ ] редакции с датой в будущем помечаются `future=True`
+- ⚠️ (Task 3) источник = OpenData API: карточка приходит JSON (`ZakonClient.card()` → `card.json.gz`, поля `eds[]{datred, pidstava (nreg через запятую), comment}`, `nazva`, `orgdat`, `status`), поэтому `parse_card` разбирает JSON (фикстура `card-family.json`, добавить JSON-карточки Податкового и Конституції), HTML-фикстуры zakon остаются как сверка. Підстави уже в виде nreg
 - ⚠️ (Task 2) підстава-КСУ на карточке выглядит как zakon id решения `v020p710-10` (href `/laws/show/v020p710-10`), а не `18-рп/2011`; `kind=court` определять по `^v\w+p710-\d\d$`. События «Визнання неконституційними…», «Тлумачення» без ссылки `ed…` редакций не дают
 - ⚠️ (Task 2) условные редакции без даты: под заголовком «пізніше», дата текстом, ссылка `ed30000101`/`ed30000102` (в JSON `datred=30000101`) → `future=True`. Текущая редакция ссылки на `ed…` не имеет (метка «відкрито зараз»), её дату брать из строки
 - ⚠️ (Task 2) номер закона нормализовать в nreg из href (`4834-17`), а не в отображаемый `4834-VI`: суффикс `VIII` неоднозначен (`322-08` 1971 vs `-19` 2014), III созыв бывает `-XIV` и `-III`; бывают буквенные суффиксы `2147<sup>а</sup>-VIII` → `2147а-19`. Отображаемый номер хранить отдельно для сообщений
@@ -343,6 +345,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 
 - [ ] `fetch_code(code, client)`: скачать карточку, распарсить, скачать все не-будущие редакции всех zakon_id кодекса; прогресс в stdout; ошибки по одной редакции не останавливают остальные, собираются в итог
 - [ ] `jurik fetch [--code SLUG] [--refetch]`
+- ⚠️ (Task 3) использовать `ZakonClient(cache, refetch=...)` из `jurik/zakon/http.py`: `client.card(id)`, `client.edition(id, "YYYYMMDD")`, `client.edition_path(...)`/`is_cached(...)` для проверки кеша; ошибки = `ZakonError`
 - [ ] write tests с MockTransport: качаются только отсутствующие в кеше редакции; future пропускается; ошибка одной редакции попадает в итог, остальные скачаны
 - [ ] run tests - must pass before next task
 
@@ -357,6 +360,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - [ ] склейка индекса статьи/главы: `39<span ...>-</span>1` → `39-1`; удаление `<a name>`, нормализация пробелов и неразрывных пробелов; апострофы как в источнике
 - [ ] вырезать служебные блоки страницы (панель печати, «Це не поточна редакція», футер) и шапку документа до первого заголовка/статьи в `header`
 - [ ] таблицы внутри статей конвертировать в markdown-таблицу, если прямоугольные, иначе в построчный текст с `|`
+- ⚠️ (Task 3) редакции качаются с OpenData API (`data.rada.gov.ua/laws/show/<nreg>/ed<date>`): абзацы `<p><a name="nNNN"></a>…</p>` внутри `<div id=article>` без классов `rvps`, индекс статьи текстом `Стаття 39 - 1 .` (с пробелами), шапка с `<meta name="Nreg">`, `<h1>` названия. Фикстуры print-редакций брать оттуда же (`client.edition`), паттерны должны принимать `39 - 1` и `39-1`
 - [ ] write tests: число статей в Сімейному первой редакции (зафиксировать по факту, сверить с оглавлением на zakon); статья 39-1 → `article_start("39-1")`; `Книга перша` и `§ 1` → `heading` с правильным kind; нумерованные пункты розділу XX и XV Конституции → `body` после `heading`, не `article_start`; примечание → `note`; ни один `body` не пуст
 - [ ] write tests на ошибки: HTML без `rvps`-абзацев → пустой список + предупреждение, а не исключение
 - [ ] run tests - must pass before next task
