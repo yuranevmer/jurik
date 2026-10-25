@@ -345,11 +345,12 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `jurik/zakon/fetch.py`, `tests/test_fetch.py`
 
 - ⚠️ (Task 4) карточка: `parse_card(client.card(zakon_id), zakon_id)` из `jurik.zakon.card`; качать `CardInfo.current()` (не future); дата редакции для `client.edition()` = `ed.date.strftime('%Y%m%d')`; ошибка карточки = `CardParseError`
-- [ ] `fetch_code(code, client)`: скачать карточку, распарсить, скачать все не-будущие редакции всех zakon_id кодекса; прогресс в stdout; ошибки по одной редакции не останавливают остальные, собираются в итог
-- [ ] `jurik fetch [--code SLUG] [--refetch]`
+- [x] `fetch_code(code, client)`: скачать карточку, распарсить, скачать все не-будущие редакции всех zakon_id кодекса; прогресс в stdout; ошибки по одной редакции не останавливают остальные, собираются в итог
+- [x] `jurik fetch [--code SLUG] [--refetch]`
 - ⚠️ (Task 3) использовать `ZakonClient(cache, refetch=...)` из `jurik/zakon/http.py`: `client.card(id)`, `client.edition(id, "YYYYMMDD")`, `client.edition_path(...)`/`is_cached(...)` для проверки кеша; ошибки = `ZakonError`
-- [ ] write tests с MockTransport: качаются только отсутствующие в кеше редакции; future пропускается; ошибка одной редакции попадает в итог, остальные скачаны
-- [ ] run tests - must pass before next task
+- [x] write tests с MockTransport: качаются только отсутствующие в кеше редакции; future пропускается; ошибка одной редакции попадает в итог, остальные скачаны
+- [x] run tests - must pass before next task
+- ✅ итог (Task 5): `jurik/zakon/fetch.py`: `fetch_code(code, client, echo=print, today=None) -> FetchResult(slug, downloaded, cached, future, errors: list[FetchError(zakon_id, edition|"card", message)])`. Ошибка карточки одного zakon_id тоже не останавливает остальные id. `jurik fetch` пишет в `./cache` (кеш относительно cwd через `Paths(Path.cwd())`), при ошибках печатает их и выходит с кодом 1; клиент создаётся через `cli.make_zakon_client` (точка подмены в тестах). Смоук: Конституція 10 редакций скачана (`cache/zakon/254к_96-ВР/`)
 
 ### Task 6: Извлечение абзацев из print-редакции
 
