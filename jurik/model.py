@@ -49,6 +49,9 @@ class DocTree:
     edition: Edition
     preamble: str
     units: list[Unit | Article] = field(default_factory=list)
+    # closing block after the last provision: signature («Президент України Л.КУЧМА»,
+    # «м. Київ, … N 2947-III») or the Constitution's «***» adoption note; "" if none
+    closing: str = ""
 
 
 @dataclass(frozen=True)
