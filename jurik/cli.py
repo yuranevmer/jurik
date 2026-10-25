@@ -11,9 +11,10 @@ from jurik.build.fastimport import FastImportError, Stream, run
 from jurik.build.history import (
     BuildError,
     cached_tree_loader,
+    plan_full,
     plan_linear,
     sources_from_cache,
-    write_linear,
+    write_steps,
 )
 from jurik.config import Code, ConfigError, Paths, get_code, load_codes
 from jurik.parse import EditionCheck, failures_report, parse_code
@@ -146,8 +147,6 @@ def parse(code_slug: str | None, edition: str | None, all_editions: bool) -> Non
 @click.option("--out", type=click.Path(path_type=Path), default=Path("build/laws"))
 def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, out: Path) -> None:
     """Build the laws git repository from cached editions (recreated from scratch)."""
-    if not linear:
-        _not_implemented("build without --linear")
     started = time.monotonic()
     paths = Paths(Path.cwd())
     try:
@@ -163,16 +162,19 @@ def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, ou
     try:
         with make_zakon_client(paths.cache) as client:
             sources = sources_from_cache(selected, client)
-            steps = plan_linear(sources, cached_tree_loader(client), index=index)
+            plan = plan_linear if linear else plan_full
+            steps = plan(sources, cached_tree_loader(client), index=index)
         stream = Stream()
-        write_linear(steps, stream)
+        write_steps(steps, stream)
         run(stream, out)
     except (BuildError, FastImportError, RenderError) as e:
         raise click.ClickException(str(e)) from e
     took = time.monotonic() - started
+    branches = len({s.ref for s in steps if s.kind == "branch"})
+    merges = sum(s.kind == "merge" for s in steps)
     click.echo(
-        f"{out}: {stream.commit_count} commits, {stream.blob_count} blobs, "
-        f"{len(selected)} code(s), {took:.1f}s"
+        f"{out}: {stream.commit_count} commits, {branches} branches, {merges} merges, "
+        f"{stream.blob_count} blobs, {len(selected)} code(s), {took:.1f}s"
     )
 
 

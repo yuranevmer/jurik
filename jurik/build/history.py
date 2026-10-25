@@ -9,14 +9,16 @@ their documents (КУпАП = union of both parts) and diffs against the previou
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from bisect import bisect_right
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
 from jurik.build.changeset import ChangeSet, diff
 from jurik.build.fastimport import Ident, Stream
-from jurik.build.message import step_message
+from jurik.build.message import branch_message, person_email, step_message
+from jurik.build.refs import bill_ref, law_ref
 from jurik.config import Code
 from jurik.model import DocTree, Edition, LawMeta
 from jurik.rada.index import LawIndex
@@ -43,6 +45,7 @@ AUTHORS: dict[str, tuple[str, str]] = {
 MAIN = "main"
 
 TreeLoader = Callable[[Edition], DocTree]
+StepKind = Literal["commit", "branch", "merge"]
 
 
 @dataclass
@@ -69,6 +72,11 @@ class Step:
     author: Ident
     committer: Ident
     message: str
+    ref: str = MAIN
+    parents: tuple[int, ...] = ()  # indices of parent steps in the plan; [0] is first parent
+    kind: StepKind = "commit"
+    stage: int | None = None  # stage of the law (branch commits and their merges)
+    branch: str | None = None  # merges: the merged branch
 
 
 @dataclass(order=True)
@@ -123,21 +131,23 @@ def _metas(bases: Iterable[str], index: LawIndex | None) -> dict[str, LawMeta | 
     return {b: index.law(b) for b in bases if base_kind(b) == "law"}
 
 
-def plan_linear(
-    sources: Iterable[CodeSource],
-    load_tree: TreeLoader,
-    *,
-    index: LawIndex | None = None,
-) -> list[Step]:
-    """Linear history of ``main``: one ``Step`` per (date, bases) group, in date order.
+@dataclass
+class _Group:
+    """One step of ``main`` before authorship and messages are decided."""
 
-    ``index`` (optional) only enriches messages with law titles, bills, votes.
-    """
-    sources = list(sources)
+    date: date
+    reason: Reason
+    bases: tuple[str, ...]
+    editions: list[Edition]
+    slugs: list[str]
+    changes: ChangeSet
+
+
+def _groups(sources: list[CodeSource], load_tree: TreeLoader) -> Iterator[_Group]:
+    """Steps of ``main`` in order with their change sets (renders are diffed lazily)."""
     by_slug = {s.code.slug: s for s in sources}
     trees: dict[str, DocTree] = {}  # zakon_id → latest tree
     files: dict[str, dict[str, bytes]] = {}  # slug → latest render
-    steps: list[Step] = []
 
     groups: dict[tuple, list[_Event]] = {}
     for ev in _events(sources):
@@ -164,29 +174,216 @@ def plan_linear(
                 new = render(current, src.code, adopted=src.adopted)
                 changes.update(diff(files.get(slug, {}), new))
                 files[slug] = new
-        name, email = AUTHORS[reason]
-        ident = Ident(name, email, first.date)
-        message = step_message(
-            reason=reason,
-            in_force=first.date,
-            bases=list(bases),
-            titles=[by_slug[s].code.title for s in slugs],
-            editions=editions,
-            metas=_metas(bases, index),
-        )
+        yield _Group(first.date, reason, bases, editions, slugs, changes)
+
+
+def _main_message(
+    g: _Group,
+    by_slug: dict[str, CodeSource],
+    metas: dict[str, LawMeta | None],
+    *,
+    stage: int | None = None,
+    unknown_bill: bool = False,
+) -> str:
+    return step_message(
+        reason=g.reason,
+        in_force=g.date,
+        bases=list(g.bases),
+        titles=[by_slug[s].code.title for s in g.slugs],
+        editions=g.editions,
+        metas=metas,
+        stage=stage,
+        unknown_bill=unknown_bill,
+    )
+
+
+def plan_linear(
+    sources: Iterable[CodeSource],
+    load_tree: TreeLoader,
+    *,
+    index: LawIndex | None = None,
+) -> list[Step]:
+    """Linear history of ``main``: one ``Step`` per (date, bases) group, in date order.
+
+    ``index`` (optional) only enriches messages with law titles, bills, votes.
+    """
+    sources = list(sources)
+    by_slug = {s.code.slug: s for s in sources}
+    steps: list[Step] = []
+    for g in _groups(sources, load_tree):
+        name, email = AUTHORS[g.reason]
+        ident = Ident(name, email, g.date)
+        message = _main_message(g, by_slug, _metas(g.bases, index))
+        parents = (len(steps) - 1,) if steps else ()
         steps.append(
-            Step(first.date, reason, bases, editions, slugs, changes, ident, ident, message)
+            Step(
+                g.date,
+                g.reason,
+                g.bases,
+                g.editions,
+                g.slugs,
+                g.changes,
+                ident,
+                ident,
+                message,
+                parents=parents,
+            )
         )
     return steps
 
 
-def write_linear(steps: Iterable[Step], stream: Stream) -> int | None:
-    """Write ``steps`` as a chain of commits on ``main``; returns the mark of the head."""
+@dataclass
+class _Branch:
+    step: int  # index of the last branch commit
+    stage: int
+
+
+def _initiator(meta: LawMeta | None, when: date) -> Ident:
+    if meta:
+        for person in meta.initiators:
+            if person.slug:
+                return Ident(person.name, person_email(person), when)
+            break
+    return Ident(*RADA, when)
+
+
+def plan_full(
+    sources: Iterable[CodeSource],
+    load_tree: TreeLoader,
+    *,
+    index: LawIndex | None = None,
+) -> list[Step]:
+    """History of ``main`` where every step based on a law is a merge of a bill branch.
+
+    The first law basis (by nreg) of a step names the branch: ``bill/<conv>/<number>`` when
+    its bill is in ``index``, else ``bill/law/<nreg>``. The branch commit starts from the
+    last commit of ``main`` in force on the bill's registration date (never before the
+    initial commit of a touched code; without a registration date from the merge parent)
+    and carries only the step's change set, so ``git diff bill^ bill`` shows just this law.
+    The merge = ``main`` head + the same change set. A later stage of the same law adds a
+    commit to the same branch and merges it again. Other steps stay linear commits.
+    """
+    sources = list(sources)
+    by_slug = {s.code.slug: s for s in sources}
+    steps: list[Step] = []
+    main: list[tuple[date, int]] = []  # (In-force, step index) of main commits, in order
+    born: dict[str, int] = {}  # slug → position in ``main`` of its initial commit
+    branches: dict[str, _Branch] = {}
+
+    def add(step: Step) -> int:
+        steps.append(step)
+        return len(steps) - 1
+
+    for g in _groups(sources, load_tree):
+        head = (main[-1][1],) if main else ()
+        laws = [b for b in g.bases if base_kind(b) == "law"]
+        metas = _metas(g.bases, index)
+        if g.reason in ("initial", "repealed") or not laws:
+            name, email = AUTHORS[g.reason]
+            ident = Ident(name, email, g.date)
+            message = _main_message(g, by_slug, metas)
+            i = add(
+                Step(
+                    g.date,
+                    g.reason,
+                    g.bases,
+                    g.editions,
+                    g.slugs,
+                    g.changes,
+                    ident,
+                    ident,
+                    message,
+                    parents=head,
+                )
+            )
+            if g.reason == "initial":
+                for slug in g.slugs:
+                    born.setdefault(slug, len(main))
+            main.append((g.date, i))
+            continue
+
+        nreg = laws[0]
+        meta = metas.get(nreg)
+        ref = bill_ref(meta.bill) if meta and meta.bill else law_ref(nreg)
+        adopted = (meta.adopted if meta else None) or g.date
+        registered = meta.registered if meta else None
+        branch = branches.get(ref)
+        stage = branch.stage + 1 if branch else 1
+        if branch:
+            base: tuple[int, ...] = (branch.step,)
+        elif registered is None or not main:
+            base = head
+        else:
+            pos = bisect_right([d for d, _ in main], registered) - 1
+            pos = max([pos, *(born.get(s, 0) for s in g.slugs)])
+            base = (main[pos][1],)
+        author = _initiator(meta, registered or adopted)
+        bmsg = branch_message(
+            nreg=nreg,
+            meta=meta,
+            bases=g.bases,
+            metas=metas,
+            titles=[by_slug[s].code.title for s in g.slugs],
+            stage=stage,
+        )
+        b = add(
+            Step(
+                g.date,
+                g.reason,
+                g.bases,
+                [],
+                g.slugs,
+                g.changes,
+                author,
+                author,
+                bmsg,
+                ref=ref,
+                parents=base,
+                kind="branch",
+                stage=stage,
+            )
+        )
+        branches[ref] = _Branch(b, stage)
+        rada = Ident(*RADA, adopted)
+        message = _main_message(g, by_slug, metas, stage=stage, unknown_bill=True)
+        i = add(
+            Step(
+                g.date,
+                g.reason,
+                g.bases,
+                g.editions,
+                g.slugs,
+                g.changes,
+                rada,
+                rada,
+                message,
+                parents=(*head, b),
+                kind="merge",
+                stage=stage,
+                branch=ref,
+            )
+        )
+        main.append((g.date, i))
+    return steps
+
+
+def write_steps(steps: Iterable[Step], stream: Stream) -> int | None:
+    """Write ``steps`` as commits (``Step.parents`` = indices of earlier steps); returns the
+    mark of the last commit of ``main``."""
+    marks: list[int] = []
     head: int | None = None
     for step in steps:
-        parents = [head] if head is not None else []
-        head = stream.commit(MAIN, parents, step.author, step.committer, step.message, step.changes)
+        parents = [marks[p] for p in step.parents]
+        mark = stream.commit(
+            step.ref, parents, step.author, step.committer, step.message, step.changes
+        )
+        marks.append(mark)
+        if step.ref == MAIN:
+            head = mark
     return head
+
+
+write_linear = write_steps
 
 
 def sources_from_cache(

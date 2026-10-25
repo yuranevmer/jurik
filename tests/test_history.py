@@ -10,14 +10,16 @@ from jurik.build.history import (
     BuildError,
     CodeSource,
     cached_tree_loader,
+    plan_full,
     plan_linear,
     reason_of,
     sources_from_cache,
     write_linear,
+    write_steps,
 )
 from jurik.build.message import parse_trailers
 from jurik.config import Code
-from jurik.model import Article, DocTree, Edition, LawMeta, Unit
+from jurik.model import Article, BillRef, DocTree, Edition, LawMeta, Person, Unit
 from jurik.rada.index import LawIndex
 from jurik.zakon.card import edition_kind
 from jurik.zakon.http import ZakonClient, write_gz
@@ -240,3 +242,190 @@ def test_gz_helper_roundtrip(tmp_path):
     path = tmp_path / "x.gz"
     write_gz(path, "абв")
     assert gzip.decompress(path.read_bytes()).decode() == "абв"
+
+
+def law(nreg, bill=None, registered=None, adopted=None, initiators=(), title="Про зміни"):
+    return LawMeta(
+        nreg, title, bill, list(initiators), registered, adopted, None, None, "adopted", ""
+    )
+
+
+PETRENKO = Person("Іван Петренко", "petrenko-ivan-ivanovych")
+KOVAL = Person("Олена Коваль", "koval-olena-petrivna")
+ART = "codes/family/01-hlava-1/art-{:04d}.md"
+
+
+def full_history(tmp_path):
+    """Family code: initial; law A (two stages); law B registered before A was merged;
+    two laws in one edition; a law without metadata; a court decision."""
+    load = Loader()
+    eds = [
+        load.add(ed("2947-14", date(2002, 1, 10)), ("1", "a0"), ("2", "b0"), ("3", "c0")),
+        load.add(ed("2947-14", date(2003, 7, 1), "100-15"), ("1", "a1"), ("2", "b0"), ("3", "c0")),
+        load.add(ed("2947-14", date(2003, 10, 1), "200-15"), ("1", "a1"), ("2", "b1"), ("3", "c0")),
+        load.add(ed("2947-14", date(2004, 1, 1), "100-15"), ("1", "a1"), ("2", "b1"), ("3", "c1")),
+        load.add(
+            ed("2947-14", date(2005, 1, 1), "301-15", "300-15"),
+            ("1", "a2"),
+            ("2", "b2"),
+            ("3", "c1"),
+        ),
+        load.add(ed("2947-14", date(2006, 1, 1), "999-15"), ("1", "a3"), ("2", "b2"), ("3", "c1")),
+        load.add(
+            ed("2947-14", date(2007, 1, 1), "v001p710-07"), ("1", "a3"), ("2", "b3"), ("3", "c1")
+        ),
+    ]
+    index = LawIndex(
+        by_law={
+            "100-15": law(
+                "100-15", BillRef(4, "1234-д"), date(2003, 3, 1), date(2003, 6, 1), [PETRENKO]
+            ),
+            "200-15": law(
+                "200-15",
+                BillRef(4, "2000"),
+                date(2003, 2, 1),
+                date(2003, 9, 1),
+                [PETRENKO, KOVAL],
+                title="Про шлюб",
+            ),
+            "300-15": law(
+                "300-15", BillRef(4, "3000"), date(2004, 5, 1), date(2004, 12, 1), [KOVAL]
+            ),
+            "301-15": law("301-15", BillRef(4, "3001"), date(2004, 6, 1), date(2004, 12, 2)),
+        }
+    )
+    steps = plan_full([CodeSource(FAMILY, {"2947-14": eds})], load, index=index)
+    stream = Stream()
+    write_steps(steps, stream)
+    repo = tmp_path / "laws"
+    run(stream, repo)
+    return steps, repo, load, eds
+
+
+def test_plan_full_steps(tmp_path):
+    steps, _, _, _ = full_history(tmp_path)
+    assert [(s.kind, s.ref, s.stage) for s in steps] == [
+        ("commit", "main", None),
+        ("branch", "bill/4/1234-d", 1),
+        ("merge", "main", 1),
+        ("branch", "bill/4/2000", 1),
+        ("merge", "main", 1),
+        ("branch", "bill/4/1234-d", 2),
+        ("merge", "main", 2),
+        ("branch", "bill/4/3000", 1),
+        ("merge", "main", 1),
+        ("branch", "bill/law/999-15", 1),
+        ("merge", "main", 1),
+        ("commit", "main", None),
+    ]
+    # branch from main in force at registration; stage 2 continues the branch
+    assert steps[1].parents == (0,)
+    assert steps[3].parents == (0,)  # registered 2003-02-01, before law A came into force
+    assert steps[5].parents == (1,)
+    assert steps[6].parents == (4, 5)
+    assert steps[7].parents == (6,)  # registered 2004-05-01: head in force 2004-01-01
+    assert steps[9].parents == (8,)  # no metadata: from the merge parent
+    assert steps[11].parents == (10,)
+
+
+def test_full_repo_branches_and_merges(tmp_path):
+    steps, repo, load, eds = full_history(tmp_path)
+    first_parent = git(repo, "log", "--first-parent", "--format=%P", "main").splitlines()
+    assert [len(p.split()) for p in first_parent] == [1, 2, 2, 2, 2, 2, 0]
+    # merge tree = new official render
+    files = tree_files(repo)
+    assert files[ART.format(1)] == "# Стаття 1. Назва 1\n\na3\n".encode()
+    assert files[ART.format(2)] == "# Стаття 2. Назва 2\n\nb3\n".encode()
+    # every commit of main = cumulative render (the merge tree is the new official text)
+    expected: dict[str, bytes] = {}
+    main_steps = [s for s in steps if s.ref == "main"]
+    for back, step in zip(range(len(main_steps) - 1, -1, -1), main_steps, strict=True):
+        expected = step.changes.apply(expected)
+        assert tree_files(repo, f"main~{back}") == expected
+    # branch of law B: base = initial commit even though law A merged in between
+    assert (
+        git(repo, "rev-parse", "bill/4/2000^").strip() == git(repo, "rev-parse", "main~6").strip()
+    )
+    changed = set(git(repo, "diff", "--name-only", "bill/4/2000^", "bill/4/2000").split())
+    assert changed == set(steps[3].changes.modified)
+    assert ART.format(1) not in changed and ART.format(2) in changed
+    # the branch keeps the old text of art. 1, the merge has law A's text
+    assert tree_files(repo, "bill/4/2000")[ART.format(1)].endswith(b"a0\n")
+    assert tree_files(repo, "main~4")[ART.format(1)].endswith(b"a1\n")
+
+
+def test_full_staged_law_merged_twice(tmp_path):
+    _, repo, _, _ = full_history(tmp_path)
+    merges = git(
+        repo, "log", "--first-parent", "--format=%H %P|%(trailers:key=Stage,valueonly)", "main"
+    )
+    branch = git(repo, "rev-list", "bill/4/1234-d").split()
+    assert len(branch) == 3  # two stages on top of the initial commit
+    rows = [line.split("|") for line in merges.splitlines() if line]
+    merged = [r for r in rows if len(r[0].split()) == 3 and r[0].split()[2] in branch]
+    assert [r[1] for r in merged] == ["2", "1"]
+    stat = git(repo, "diff", "--name-only", "bill/4/1234-d^", "bill/4/1234-d").split()
+    assert ART.format(3) in stat and ART.format(1) not in stat
+
+
+def test_full_multi_basis_one_merge_two_laws(tmp_path):
+    steps, repo, _, _ = full_history(tmp_path)
+    msg = git(repo, "log", "-1", "--format=%B", "main~2")
+    trailers = parse_trailers(msg)
+    assert [v for k, v in trailers if k == "Law"] == ["300-IV", "301-IV"]
+    assert [v for k, v in trailers if k == "Bill"] == ["4/3000", "4/3001"]
+    assert ("Reason", "multiple") in trailers
+    assert (
+        git(repo, "rev-parse", "main~2^2").strip() == git(repo, "rev-parse", "bill/4/3000").strip()
+    )
+    assert "bill/4/3001" not in git(repo, "for-each-ref", "--format=%(refname:short)")
+
+
+def test_full_law_without_meta_and_court(tmp_path):
+    _, repo, _, _ = full_history(tmp_path)
+    msg = git(repo, "log", "-1", "--format=%B", "main~1")
+    assert ("Bill", "unknown") in parse_trailers(msg)
+    assert git(repo, "log", "-1", "--format=%an|%ad", "--date=short", "bill/law/999-15") == (
+        "Верховна Рада України|2006-01-01\n"
+    )
+    assert ("Reason", "court") in parse_trailers(git(repo, "log", "-1", "--format=%B", "main"))
+    assert git(repo, "log", "-1", "--format=%P", "main").count(" ") == 0
+
+
+def test_full_authors_and_dates(tmp_path):
+    _, repo, _, _ = full_history(tmp_path)
+    fmt = "--format=%an|%ae|%ad|%cn|%ce|%cd"
+    branch = git(repo, "log", "-1", fmt, "--date=iso", "bill/4/2000").strip()
+    assert branch == (
+        "Іван Петренко|petrenko-ivan-ivanovych@deputies.invalid|2003-02-01 12:00:00 +0200|"
+        "Іван Петренко|petrenko-ivan-ivanovych@deputies.invalid|2003-02-01 12:00:00 +0200"
+    )
+    merge = git(repo, "log", "-1", fmt, "--date=iso", "main~4").strip()
+    assert merge == (
+        "Верховна Рада України|rada@laws.invalid|2003-09-01 12:00:00 +0300|"
+        "Верховна Рада України|rada@laws.invalid|2003-09-01 12:00:00 +0300"
+    )
+    body = git(repo, "log", "-1", "--format=%B", "bill/4/2000")
+    assert "Co-authored-by: Олена Коваль <koval-olena-petrivna@deputies.invalid>" in body
+    trailers = parse_trailers(git(repo, "log", "-1", "--format=%B", "main~4"))
+    assert ("In-force", "2003-10-01") in trailers
+    assert ("Edition", "2947-14/ed20031001") in trailers
+    assert ("Stage", "1") in trailers
+    # multi-basis: the branch (and its author) belong to the first law by number
+    assert git(repo, "log", "-1", "--format=%an", "bill/4/3000").strip() == "Олена Коваль"
+
+
+def test_branch_never_starts_before_code_exists(tmp_path):
+    load = Loader()
+    c1 = load.add(ed("254к/96-ВР", date(1996, 6, 28)), ("1", "x"))
+    f1 = load.add(ed("2947-14", date(2004, 1, 1)), ("1", "a"))
+    f2 = load.add(ed("2947-14", date(2005, 1, 1), "100-15"), ("1", "b"))
+    constitution = Code("constitution", ("254к/96-ВР",), "Конституція України")
+    index = LawIndex(by_law={"100-15": law("100-15", BillRef(4, "1"), date(2000, 1, 1))})
+    steps = plan_full(
+        [CodeSource(constitution, {"254к/96-ВР": [c1]}), CodeSource(FAMILY, {"2947-14": [f1, f2]})],
+        load,
+        index=index,
+    )
+    assert [s.kind for s in steps] == ["commit", "commit", "branch", "merge"]
+    assert steps[2].parents == (1,)  # family initial, not the constitution-only commit

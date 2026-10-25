@@ -88,3 +88,68 @@ def test_subjects_of_linear_reasons():
     assert "Конституційного Суду" in subject_for("court", ["v020p710-10"], titles, {})
     court = dict(law_trailers(["v020p710-10"], {}))
     assert court == {"Basis": "v020p710-10"}
+
+
+def test_presidents_proposals_title_is_the_law_title():
+    from jurik.build.message import law_title
+
+    m = meta(law_title='Пропозиції Президента України до Закону "Про захист дітей"')
+    assert law_title(m) == "Про захист дітей"
+    m = meta(law_title="Пропозиції Президента України до Закону про тимчасові комісії")
+    assert law_title(m) == "Про тимчасові комісії"
+    m = meta(law_title="Пропозиції Президента України до Виборчого кодексу України")
+    assert law_title(m) == "Пропозиції Президента України до Виборчого кодексу України"
+    assert law_title(None) == ""
+    text = subject_for("law", ["2856-17"], ["X"], {"2856-17": m})
+    assert text.startswith("Закон № 2856-VI: Пропозиції")
+
+
+def test_merge_message_has_stage_and_unknown_bill():
+    text = step_message(
+        reason="law",
+        in_force=date(2011, 1, 1),
+        bases=["2856-17"],
+        titles=["Податковий кодекс України"],
+        editions=[edition()],
+        metas={"2856-17": None},
+        stage=2,
+        unknown_bill=True,
+    )
+    trailers = parse_trailers(text)
+    assert ("Bill", "unknown") in trailers
+    keys = [k for k, _ in trailers]
+    assert keys.index("In-force") < keys.index("Stage") < keys.index("Reason")
+    assert ("Stage", "2") in trailers
+
+
+def test_branch_message():
+    from jurik.build.message import branch_message
+
+    m = meta(
+        initiators=[
+            Person("Микола Азаров", "azarov-mykola-yanovych"),
+            Person("Федір Ярошенко", "yaroshenko-fedir-oleksandrovych"),
+        ]
+    )
+    text = branch_message(
+        nreg="2856-17",
+        meta=m,
+        bases=["2856-17"],
+        metas={"2856-17": m},
+        titles=["Податковий кодекс України"],
+        stage=1,
+    )
+    assert text.startswith("Законопроект № 7101: Про внесення змін до Податкового")
+    trailers = parse_trailers(text)
+    assert ("Bill", "6/7101") in trailers
+    assert ("Registered", "2010-10-01") in trailers
+    assert (
+        "Co-authored-by",
+        "Федір Ярошенко <yaroshenko-fedir-oleksandrovych@deputies.invalid>",
+    ) in trailers
+    assert not any(k in ("In-force", "Adopted", "Edition") for k, _ in trailers)
+    unknown = branch_message(
+        nreg="999-17", meta=None, bases=["999-17"], metas={}, titles=["Податковий"], stage=1
+    )
+    assert unknown.startswith("Закон № 999-VI (Податковий)")
+    assert ("Bill", "unknown") in parse_trailers(unknown)
