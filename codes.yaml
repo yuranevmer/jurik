@@ -1,0 +1,88 @@
+# Registry of codes built into build/laws.
+#
+# Verification (Task 1, 2026-10-25): every zakon_id below was opened as
+# https://zakon.rada.gov.ua/laws/card/<id> (HTTP 200) and the page <title> matched the
+# code. zakon truncates long titles with "..."; the visible prefix matched in all cases.
+# Notes:
+#   - 80731-10 and 80732-10 are the two parts of КУпАП, both titled
+#     "Кодекс України про адміністра..." від 07.12.1984 № 8073-X.
+#   - 132/94-ВР card title is "Про надра" від 27.07.1994; the citation on the card reads
+#     "Кодекс України; Закон, Кодекс ... № 132/94-ВР", i.e. Кодекс України про надра.
+#   - 436-15 (Господарський кодекс) is repealed in 2025; kept for history.
+#   - 4651-17 responds gzip-compressed even without Accept-Encoding; client must decode.
+
+- slug: constitution
+  zakon_id: "254к/96-ВР"
+  title: Конституція України        # verified: від 28.06.1996 № 254к/96-ВР
+- slug: family
+  zakon_id: "2947-14"
+  title: Сімейний кодекс України     # verified: від 10.01.2002 № 2947-III
+- slug: tax
+  zakon_id: "2755-17"
+  title: Податковий кодекс України   # verified: від 02.12.2010 № 2755-VI
+- slug: admin-offences
+  zakon_id: ["80731-10", "80732-10"]
+  title: Кодекс України про адміністративні правопорушення  # verified: № 8073-X
+- slug: civil
+  zakon_id: "435-15"
+  title: Цивільний кодекс України    # verified: від 16.01.2003 № 435-IV
+- slug: civil-procedure
+  zakon_id: "1618-15"
+  title: Цивільний процесуальний кодекс України  # verified: від 18.03.2004 № 1618-IV
+- slug: criminal
+  zakon_id: "2341-14"
+  title: Кримінальний кодекс України  # verified: від 05.04.2001 № 2341-III
+- slug: criminal-procedure
+  zakon_id: "4651-17"
+  title: Кримінальний процесуальний кодекс України  # verified: від 13.04.2012 № 4651-VI
+- slug: penal
+  zakon_id: "1129-15"
+  title: Кримінально-виконавчий кодекс України  # verified: від 11.07.2003 № 1129-IV
+- slug: admin-procedure
+  zakon_id: "2747-15"
+  title: Кодекс адміністративного судочинства України  # verified: від 06.07.2005 № 2747-IV
+- slug: commercial-procedure
+  zakon_id: "1798-12"
+  title: Господарський процесуальний кодекс України  # verified: від 06.11.1991 № 1798-XII
+- slug: customs
+  zakon_id: "4495-17"
+  title: Митний кодекс України       # verified: від 13.03.2012 № 4495-VI
+- slug: budget
+  zakon_id: "2456-17"
+  title: Бюджетний кодекс України    # verified: від 08.07.2010 № 2456-VI
+- slug: labour
+  zakon_id: "322-08"
+  title: Кодекс законів про працю України  # verified: від 10.12.1971 № 322-VIII
+- slug: land
+  zakon_id: "2768-14"
+  title: Земельний кодекс України    # verified: від 25.10.2001 № 2768-III
+- slug: housing
+  zakon_id: "5464-10"
+  title: Житловий кодекс України     # verified: від 30.06.1983 № 5464-X
+- slug: water
+  zakon_id: "213/95-ВР"
+  title: Водний кодекс України       # verified: від 06.06.1995 № 213/95-ВР
+- slug: forest
+  zakon_id: "3852-12"
+  title: Лісовий кодекс України      # verified: від 21.01.1994 № 3852-XII
+- slug: subsoil
+  zakon_id: "132/94-ВР"
+  title: Кодекс України про надра    # verified: "Про надра" від 27.07.1994 № 132/94-ВР
+- slug: air
+  zakon_id: "3393-17"
+  title: Повітряний кодекс України   # verified: від 19.05.2011 № 3393-VI
+- slug: merchant-shipping
+  zakon_id: "176/95-ВР"
+  title: Кодекс торговельного мореплавства України  # verified: від 23.05.1995 № 176/95-ВР
+- slug: electoral
+  zakon_id: "396-20"
+  title: Виборчий кодекс України     # verified: від 19.12.2019 № 396-IX
+- slug: bankruptcy
+  zakon_id: "2597-19"
+  title: Кодекс України з процедур банкрутства  # verified: від 18.10.2018 № 2597-VIII
+- slug: civil-protection
+  zakon_id: "5403-17"
+  title: Кодекс цивільного захисту України  # verified: від 02.10.2012 № 5403-VI
+- slug: commercial
+  zakon_id: "436-15"
+  title: Господарський кодекс України  # verified: від 16.01.2003 № 436-IV (repealed 2025)

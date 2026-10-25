@@ -280,14 +280,14 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `jurik/__init__.py`, `jurik/cli.py`, `jurik/config.py`, `jurik/model.py`
 - Create: `tests/conftest.py`, `tests/test_config.py`
 
-- [ ] `git init`, `uv init --package jurik`, зависимости: httpx, lxml, pyyaml, click; dev: pytest, ruff; в pyproject зарегистрировать маркер `network` и `addopts = "-m 'not network'"`
-- [ ] `jurik/model.py` с dataclass'ами из Technical Details (`Edition`, `Article`, `Unit`, `DocTree`, `BillRef`, `Person`, `LawMeta`)
-- [ ] `jurik/config.py`: загрузка `codes.yaml` (zakon_id строка или список), пути `cache/`, `build/`, `report/`; валидация уникальности slug и zakon_id
-- [ ] `codes.yaml` со всеми кодексами из реестра; для каждого id вручную проверить, что карточка на zakon открывается и заголовок совпадает (однократно, результат зафиксировать в комментарии к yaml)
-- [ ] `jurik/cli.py`: группа `jurik` с заглушками команд `fetch`, `rada`, `parse`, `build`, `report`, `export`
-- [ ] `.gitignore`: `cache/`, `build/`, `report/`
-- [ ] write tests: загрузка `codes.yaml`, список zakon_id для КУпАП, ошибка на дублирующемся slug, ошибка на отсутствующем поле
-- [ ] run tests - must pass before next task
+- [x] `git init`, `uv init --package jurik`, зависимости: httpx, lxml, pyyaml, click; dev: pytest, ruff; в pyproject зарегистрировать маркер `network` и `addopts = "-m 'not network'"`
+- [x] `jurik/model.py` с dataclass'ами из Technical Details (`Edition`, `Article`, `Unit`, `DocTree`, `BillRef`, `Person`, `LawMeta`)
+- [x] `jurik/config.py`: загрузка `codes.yaml` (zakon_id строка или список), пути `cache/`, `build/`, `report/`; валидация уникальности slug и zakon_id
+- [x] `codes.yaml` со всеми кодексами из реестра; для каждого id вручную проверить, что карточка на zakon открывается и заголовок совпадает (однократно, результат зафиксировать в комментарии к yaml)
+- [x] `jurik/cli.py`: группа `jurik` с заглушками команд `fetch`, `rada`, `parse`, `build`, `report`, `export`
+- [x] `.gitignore`: `cache/`, `build/`, `report/`
+- [x] write tests: загрузка `codes.yaml`, список zakon_id для КУпАП, ошибка на дублирующемся slug, ошибка на отсутствующем поле
+- [x] run tests - must pass before next task
 
 ### Task 2: Разведка источников (spike, ограничен одним днём)
 
