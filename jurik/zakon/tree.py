@@ -42,6 +42,8 @@ _EXCLUSION_NOTE = re.compile(
 # inline editorial note inside a text paragraph: "174.5. {Абзац перший … виключено …}"
 _INLINE_NOTE = re.compile(r"\s*\{[^{}]*\}")
 # first paragraph of the closing block: signature line/table or the "***" separator
+# title of a level of final/transitional provisions («ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ»)
+_FINAL_TITLE = re.compile(r"прикінцев|перехідн", re.I)
 _CLOSING_START = re.compile(r"^(?:\|\s*)?(?:Президент України|Голова Верховної Ради)\b|^\*\*\*$")
 
 
@@ -155,7 +157,15 @@ class _Builder:
         siblings.append(unit)
         self.stack.append(unit)
 
+    def _in_final_provisions(self) -> bool:
+        return any(u.kind == "final" or _FINAL_TITLE.search(u.title) for u in self.stack)
+
     def article_start(self, p: Para, pos: int) -> None:
+        if p.number in self.seen_articles and self.article is None and self._in_final_provisions():
+            # amending text quoted in the final provisions («статті 26-28 викласти в такій
+            # редакції: "Стаття 26 …" Стаття 27. …», Виборчий кодекс): not a code article
+            self.body(p.text)
+            return
         self._close_article()
         if p.number in self.seen_articles:
             raise TreeError(

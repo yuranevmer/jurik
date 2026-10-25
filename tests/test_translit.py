@@ -68,13 +68,23 @@ def test_slug_keeps_digits():
 
 
 @pytest.mark.parametrize(
-    ("roman", "n"), [("I", 1), ("IV", 4), ("IX", 9), ("XIV", 14), ("XVIII", 18), ("XX", 20)]
+    ("roman", "n"),
+    [
+        ("I", 1),
+        ("IV", 4),
+        ("IX", 9),
+        ("XIV", 14),
+        ("XVIII", 18),
+        ("XX", 20),
+        ("XXXX", 40),
+        ("XXXXII", 42),
+    ],
 )
 def test_roman_to_int(roman, n):
     assert roman_to_int(roman) == n
 
 
-@pytest.mark.parametrize("bad", ["", "IIII", "ABC", "VX"])
+@pytest.mark.parametrize("bad", ["", "IIII", "XXXXX", "ABC", "VX"])
 def test_roman_to_int_rejects(bad):
     with pytest.raises(ValueError):
         roman_to_int(bad)
