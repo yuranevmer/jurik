@@ -2,15 +2,25 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import click
 
+from jurik.build.fastimport import FastImportError, Stream, run
+from jurik.build.history import (
+    BuildError,
+    cached_tree_loader,
+    plan_linear,
+    sources_from_cache,
+    write_linear,
+)
 from jurik.config import Code, ConfigError, Paths, get_code, load_codes
 from jurik.parse import EditionCheck, failures_report, parse_code
 from jurik.rada.client import CONVOCATIONS, RadaClient, RadaError
 from jurik.rada.index import build_index
 from jurik.rada.match import coverage_report
+from jurik.render import RenderError
 from jurik.zakon.card import CardParseError, base_kind, parse_card
 from jurik.zakon.fetch import FetchResult, fetch_code
 from jurik.zakon.http import ZakonClient
@@ -130,13 +140,40 @@ def parse(code_slug: str | None, edition: str | None, all_editions: bool) -> Non
 
 
 @main.command()
-@click.option("--code", "code_slug", help="Code slug from codes.yaml.")
+@click.option("--code", "code_slugs", multiple=True, help="Code slug (repeatable); default all.")
 @click.option("--linear", is_flag=True, help="Linear history without bill branches.")
 @click.option("--bills-limit", type=int, help="Limit number of bill branches.")
 @click.option("--out", type=click.Path(path_type=Path), default=Path("build/laws"))
-def build(code_slug: str | None, linear: bool, bills_limit: int | None, out: Path) -> None:
-    """Build the laws git repository."""
-    _not_implemented("build")
+def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, out: Path) -> None:
+    """Build the laws git repository from cached editions (recreated from scratch)."""
+    if not linear:
+        _not_implemented("build without --linear")
+    started = time.monotonic()
+    paths = Paths(Path.cwd())
+    try:
+        codes = load_codes()
+        selected = [get_code(codes, s) for s in code_slugs] if code_slugs else codes
+    except ConfigError as e:
+        raise click.ClickException(str(e)) from e
+    try:
+        index = build_index(paths.cache)
+    except RadaError as e:
+        click.echo(f"warning: no law index ({e}); messages without law titles", err=True)
+        index = None
+    try:
+        with make_zakon_client(paths.cache) as client:
+            sources = sources_from_cache(selected, client)
+            steps = plan_linear(sources, cached_tree_loader(client), index=index)
+        stream = Stream()
+        write_linear(steps, stream)
+        run(stream, out)
+    except (BuildError, FastImportError, RenderError) as e:
+        raise click.ClickException(str(e)) from e
+    took = time.monotonic() - started
+    click.echo(
+        f"{out}: {stream.commit_count} commits, {stream.blob_count} blobs, "
+        f"{len(selected)} code(s), {took:.1f}s"
+    )
 
 
 @main.command()

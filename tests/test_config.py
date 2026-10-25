@@ -77,3 +77,18 @@ def test_bad_title_pattern_rejected(write_registry):
     )
     with pytest.raises(ConfigError, match="tax.*title_patterns"):
         load_codes(path)
+
+
+def test_repealed_fields(write_registry):
+    from datetime import date
+
+    path = write_registry(
+        '- slug: commercial\n  zakon_id: "436-15"\n  title: Господарський кодекс України\n'
+        "  repealed: 2025-08-28\n  repealed_by: 4196-20\n"
+    )
+    (code,) = load_codes(path)
+    assert code.repealed == date(2025, 8, 28)
+    assert code.repealed_by == "4196-20"
+    bad = write_registry('- slug: c\n  zakon_id: "1-1"\n  title: T\n  repealed: soon\n')
+    with pytest.raises(ConfigError, match="repealed"):
+        load_codes(bad)

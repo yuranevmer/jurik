@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -23,6 +24,8 @@ class Code:
     zakon_ids: tuple[str, ...]
     title: str
     title_patterns: tuple[str, ...] = ()
+    repealed: date | None = None  # the code lost force on this day (folder is deleted)
+    repealed_by: str = ""  # nreg of the repealing law
 
 
 @dataclass(frozen=True)
@@ -83,12 +86,19 @@ def parse_codes(data: object) -> list[Code]:
             except re.error as e:
                 msg = f"code {slug!r}: bad title_patterns regex {pattern!r}: {e}"
                 raise ConfigError(msg) from e
+        repealed = entry.get("repealed")
+        if repealed is not None and (
+            not isinstance(repealed, date) or isinstance(repealed, datetime)
+        ):
+            raise ConfigError(f"code {slug!r}: repealed must be a date YYYY-MM-DD")
         codes.append(
             Code(
                 slug=slug,
                 zakon_ids=zakon_ids,
                 title=str(entry["title"]),
                 title_patterns=tuple(patterns),
+                repealed=repealed,
+                repealed_by=str(entry.get("repealed_by") or "").strip().lower(),
             )
         )
     return codes

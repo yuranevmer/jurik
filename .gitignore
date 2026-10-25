@@ -1,6 +1,6 @@
-cache/
-build/
-report/
+/cache/
+/build/
+/report/
 __pycache__/
 *.pyc
 .venv/
