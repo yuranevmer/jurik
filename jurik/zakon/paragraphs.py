@@ -92,9 +92,12 @@ _TAIL = r"(?=[\s.]|$)\s*(\.?)\s*(.*)$"
 # Митний кодекс mixes Cyrillic І/Х into Roman numerals: «Розділ XVІ», «Розділ XІX»
 _SECTION = re.compile(rf"^Розділ\s+([IVXLCІХ]+(?:\s*-\s*\d+)?){_TAIL}", re.I | re.S)
 _CYRILLIC_ROMAN = str.maketrans("ІХіх", "IXix")
-_SECTION_NUMERAL = re.compile(r"^(Розділ\s+)([IVXLCІХ]+)", re.I)
+_SECTION_NUMERAL = re.compile(r"^((?:Розділ|Глава)\s+)([IVXLCІХ]+)(?=[\s.\-]|$)", re.I)
 _SUBSECTION = re.compile(rf"^Підрозділ\s+({_INDEX}){_TAIL}", re.I | re.S)
-_CHAPTER = re.compile(rf"^Глава\s+({_INDEX}){_TAIL}", re.I | re.S)
+# КЗпП: Roman chapter numbers with letter suffixes «Глава III-А», «ГЛАВА III-Б»
+_CHAPTER = re.compile(
+    rf"^Глава\s+((?:\d+|[IVXLCІХ]+)(?:\s*-\s*(?:\d+|[А-ЯІЇЄҐ]))?){_TAIL}", re.I | re.S
+)
 _PARAGRAPH = re.compile(rf"^§\s*({_INDEX}){_TAIL}", re.S)
 # "{…}", also "/- {Зміни …, прийняті Законом …}" (pending amendment marker)
 _NOTE_START = re.compile(r"^[/\-\s]*\{")
@@ -171,8 +174,9 @@ def match_heading(text: str) -> tuple[UnitKind, str, str] | None:
             if not _title_ok(kind, m.group(2), title):
                 return None
             number = _norm_index(m.group(1))
-            if kind == "section":
-                number = number.upper().translate(_CYRILLIC_ROMAN)
+            if kind in ("section", "chapter") and not number[0].isdigit():
+                head, sep, idx = number.partition("-")
+                number = head.upper().translate(_CYRILLIC_ROMAN) + sep + idx.upper()
             return kind, number, title  # type: ignore[return-value]
     return None
 
@@ -349,7 +353,7 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
             seen_structure = True
             unit_kind, number, htitle = head
             level = unit_kind
-            if unit_kind == "section":  # the heading text carries the Latin numeral too
+            if unit_kind in ("section", "chapter"):  # the heading text carries Latin numerals
                 text = _SECTION_NUMERAL.sub(lambda m: m[1] + m[2].translate(_CYRILLIC_ROMAN), text)
             if not htitle and i < len(blocks):
                 nxt = blocks[i]

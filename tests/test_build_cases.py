@@ -19,6 +19,7 @@ FIX = Path(__file__).parent / "fixtures" / "zakon"
 ELECTORAL = "396-20_ed20261022_build_fragment.html"
 CUSTOMS = "4495-17_ed20260917_build_fragment.html"
 LAND = "2768-14_ed20261016_build_fragment.html"
+LABOUR = "322-08_ed19960723_build_fragment.html"
 
 
 def paras_of(name: str) -> list[Para]:
@@ -128,3 +129,41 @@ def test_land_dotless_chapter_headings():
 )
 def test_match_heading_dotless_chapter(text, heading):
     assert (match_heading(text) is not None) == heading
+
+
+def test_labour_enacting_act_articles_go_to_preamble():
+    # КЗпП 1996–1998: «Закон УРСР Про затвердження Кодексу … Стаття 1. Затвердити Кодекс …»
+    # precedes the code, whose own «Стаття 1» used to be a duplicate
+    paras = paras_of(LABOUR)
+    tree = tree_of(paras, "322-08")
+    assert "Стаття 1. Затвердити Кодекс законів про працю" in tree.preamble
+    assert "Стаття 2. Доручити Президії" in tree.preamble
+    assert all(isinstance(u, Unit) for u in tree.units)
+    assert [a.number for a in articles(tree)][:3] == ["1", "2", "2-1"]
+    assert articles(tree)[0].title == "Завдання Кодексу законів про працю України"
+    files = render(tree, Code("labour", ("322-08",), "КЗпП"))
+    assert any(p.startswith("codes/labour/03-a-zabezpechennia-zainiatosti") for p in files)
+    assert "# Глава III-А. ЗАБЕЗПЕЧЕННЯ" in "".join(f.decode() for f in files.values())
+    res = verify_paragraphs(paras, files)
+    assert res.ok, res.missing[:5]
+
+
+def test_duplicate_article_without_levels_still_fails():
+    p = Para("Стаття 1. Текст", "article_start", "", number="1", title="Текст")
+    with pytest.raises(ValueError, match="duplicate article 1"):
+        tree_of([p, p], "x")
+
+
+@pytest.mark.parametrize(
+    ("text", "number", "title"),
+    [
+        ("ГЛАВА III-Б СПРОЩЕНИЙ РЕЖИМ РЕГУЛЮВАННЯ ТРУДОВИХ ВІДНОСИН", "III-Б", "СПРОЩЕНИЙ"),
+        ("Глава XVI-А ПРАЦЯ", "XVI-А", "ПРАЦЯ"),
+        ("Глава IV РОБОЧИЙ ЧАС", "IV", "РОБОЧИЙ ЧАС"),
+        ("Глава 3-1. Назва", "3-1", "Назва"),
+    ],
+)
+def test_match_heading_roman_chapter(text, number, title):
+    kind, num, ttl = match_heading(text)
+    assert (kind, num) == ("chapter", number)
+    assert ttl.startswith(title)

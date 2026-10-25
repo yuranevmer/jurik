@@ -42,10 +42,10 @@ def _number_parts(number: str) -> list[str]:
 
 
 def unit_prefix(number: str) -> str:
-    """'I' → '01', 'XIV' → '14', '1-1' → '01-1', 'XVIII-1' → '18-1'."""
+    """'I' → '01', 'XIV' → '14', '1-1' → '01-1', 'XVIII-1' → '18-1', 'III-А' → '03-a'."""
     head, *rest = _number_parts(number)
     n = int(head) if head.isdigit() else roman_to_int(head)
-    return "-".join([f"{n:02d}", *rest])
+    return "-".join([f"{n:02d}", *(p if p.isdigit() else slug(p) for p in rest)])
 
 
 def unit_dir(unit: Unit) -> str:

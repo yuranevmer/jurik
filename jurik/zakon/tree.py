@@ -167,6 +167,8 @@ class _Builder:
             self.body(p.text)
             return
         self._close_article()
+        if p.number in self.seen_articles and self.stack and self._lead_articles_to_preamble():
+            self.seen_articles = {}
         if p.number in self.seen_articles:
             raise TreeError(
                 f"duplicate article {p.number} at paragraph {pos}"
@@ -185,6 +187,24 @@ class _Builder:
             number=p.number, title=strip_notes(title), body="", excluded=excluded
         )
         self._siblings().append(self.article)
+
+    def _lead_articles_to_preamble(self) -> bool:
+        """Articles before the first level belong to an enacting act printed before the
+        code (КЗпП 1996–1998: «Закон УРСР Про затвердження Кодексу … Стаття 1. Затвердити
+        Кодекс …»): when the code's own numbering repeats them, they become preamble text.
+        Only applies when every top-level item before the first level is such an article."""
+        lead: list[Article] = []
+        for item in self.top:
+            if isinstance(item, Unit):
+                break
+            lead.append(item)
+        if not lead or len(lead) == len(self.top):
+            return False
+        for art in lead:
+            text = f"Стаття {art.number}. {art.title}".rstrip()
+            self.preamble.extend([text, art.body] if art.body else [text])
+        del self.top[: len(lead)]
+        return True
 
     def body(self, text: str) -> None:
         text = strip_notes(text)
