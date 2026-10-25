@@ -535,13 +535,14 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Create: `tests/test_report.py`, `tests/test_export.py`
 
 - ⚠️ (Task 11) долю не найденных законопроектов «до деяких законодавчих актів» брать из `jurik.rada.match.omnibus_unmatched(index, codes)`; готовые строки покрытия open data: `coverage_report(index, codes, bases_by_code)`, підстави из кеша карточек: `jurik.cli.cached_code_bases(codes, cache)`
-- [ ] `jurik report`: `report/coverage.md` (по кодексу: редакций всего / распарсено / с законопроектом в open data / с голосованием; веток отклонённых; доля законов без LawMeta), `report/parse-failures.md`
-- [ ] `export.commit_at(repo, date)`: последний коммит `--first-parent main` с `In-force:` ≤ date (не `--before`)
-- [ ] `jurik export --at DATE --out DIR`: `git archive` этого коммита → папка markdown + `manifest.json` (дата, коммит, список кодексов)
+- [x] `jurik report`: `report/coverage.md` (по кодексу: редакций всего / распарсено / с законопроектом в open data / с голосованием; веток отклонённых; доля законов без LawMeta), `report/parse-failures.md`
+- [x] `export.commit_at(repo, date)`: последний коммит `--first-parent main` с `In-force:` ≤ date (не `--before`)
+- [x] `jurik export --at DATE --out DIR`: `git archive` этого коммита → папка markdown + `manifest.json` (дата, коммит, список кодексов)
 - ⚠️ (Task 15) ветки не принятых законопроектов: шаги `Step(kind="branch", reason="bill")` (в отчёте «веток отклонённых» считать их), в git — ветки `bill/*` с одним коммитом, которые не достижимы из `main`; файл `bills/<conv>/<ref_safe(n)>.md` (ASCII-имя, `1234-д` → `1234-d.md`); статус бывает не только `rejected`, но и `withdrawn`/`removed`/`pending` (трейлер `Status:`, строка `- Статус: …` в файле) — пометку `--with-bills` строить из фактического статуса, а не всегда «відхилено»
-- [ ] `--with-bills`: дополнительно выгрузить `bills/**/*.md` из веток без merge, добавив в начало каждого файла строку `> Законопроект № N (созыв C), статус: відхилено. Не є чинним законом.`
-- [ ] write tests: отчёт на синтетических данных содержит правильные числа; `commit_at` между двумя `In-force:` даёт более ранний даже если committer-дата позднего раньше; `--with-bills` добавляет пометку
-- [ ] run tests - must pass before next task
+- [x] `--with-bills`: дополнительно выгрузить `bills/**/*.md` из веток без merge, добавив в начало каждого файла строку `> Законопроект № N (созыв C), статус: відхилено. Не є чинним законом.`
+- [x] write tests: отчёт на синтетических данных содержит правильные числа; `commit_at` между двумя `In-force:` даёт более ранний даже если committer-дата позднего раньше; `--with-bills` добавляет пометку
+- [x] run tests - must pass before next task
+- ✅ итог (Task 16): `jurik/report.py`: `code_coverage(code, editions, checks, index, branches) -> CodeCoverage` (редакций / в кеше / распарсено / с законопроектом в open data / с голосованием / законов-підстав / без `LawMeta` / веток не принятых в репо / не принятых по названию в индексе), `coverage_markdown(rows, repo=RepoStats, open_data=coverage_report(...), missing=...)`, `repo_stats(repo) -> (RepoStats(main_commits, bill_branches, unmerged), [BillBranch])`, `branches_by_code` (по строке «Стосується: …» сообщения ветки). `jurik report [--code S ...] [--repo build/laws]` парсит **все** кешированные in-force редакции (ПК+ЦК целиком ~минуты), кодексы без карточки → «Not fetched», не скачанные редакции не считаются сбоями (колонка Cached), `report/parse-failures.md` только по кешированным. `jurik/export.py`: `commit_at(repo, date)` (по `In-force:` в `--first-parent main`), `unmerged_bills(repo)` (`for-each-ref --no-merged=main refs/heads/bill/`, трейлеры `Bill`/`Status`/`Registered`), `export(repo, at, out, with_bills=)` (`git archive` → tar → `out`; `out` должен быть пуст или прошлым экспортом с `manifest.json`, тогда пересоздаётся). `jurik export [--at YYYY-MM-DD] [--with-bills] [--repo build/laws] --out DIR` (без `--at` = сегодня). `manifest.json`: `at`, `commit`, `in_force`, `codes`, `files`, `sources`, `bills` (только с `--with-bills`). Пометка: `> Законопроект № N (<римский> скликання), статус: <фактический статус>. Не є чинним законом.`; выгружаются только законопроекты с `Registered:` ≤ `--at` (без даты — всегда). `check.py`: `git`, `main_log`, `in_force_of`, `MainCommit` стали публичными. Смоук Сімейний+Конституція: report 75/75 кешированных редакций без сбоев, 72 коммита `--first-parent main`, 73 ветки (68 merged, 5 без merge); `export --at 2015-01-01` → коммит In-force 2014-10-26, 498 файлов; `--with-bills` → 5 файлов `bills/3/*.md` со статусом «на розгляді»/«відхилено»
 
 ### Task 17: Полная сборка
 
@@ -551,12 +552,14 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 
 - ⚠️ (Task 12) заполнить `repealed: YYYY-MM-DD` и `repealed_by: <nreg>` у `commercial` в `codes.yaml` по карточке 436-15 (иначе папка не удаляется); `jurik build` пересоздаёт `--out` целиком и требует в кеше все in-force редакции выбранных кодексов
 - [ ] `jurik rada` для всех созывов; `jurik build --code family`, затем `--code constitution`, затем все; Податковий последним; проблемы фиксируются фикстурой + тестом (➕ подзадачи сюда)
+- ⚠️ (Task 16) `jurik report` парсит все кешированные редакции всех кодексов (сбои → `report/parse-failures.md`), число коммитов `--first-parent main` и веток (merged / без merge) берёт из `--repo build/laws`, так что запускать после `jurik build`
 - [ ] зафиксировать время сборки, размер `.git`, число коммитов/веток, `report/coverage.md` в `docs/pilot-build.md`
 - [ ] run full test suite: `uv run pytest`
 - [ ] run tests - must pass before next task
 
 ### Task 18: Verify acceptance criteria
 
+- ⚠️ (Task 16) в `report/coverage.md` раздел «Repository» даёт число коммитов `--first-parent main` и веток `bill/*` (merged / без merge) из самого репозитория, число шагов плана = `build` печатает commits/branches/merges; `jurik export` берёт репозиторий из `--repo` (по умолчанию `build/laws`), `--with-bills` выгружает только законопроекты с `Registered:` ≤ `--at`
 - [ ] `build/laws`: число коммитов `--first-parent main` = число шагов из отчёта; число веток `bill/*` = число законов с ветками + отклонённых
 - [ ] `git log --follow codes/tax/.../art-0014.md` показывает историю статьи с осмысленными сообщениями
 - ⚠️ (Task 14) `check.check_text`/`_main_files` читают дерево `main` (константа); для сверки на дату использовать `verify_edition` на файлах экспорта или параметризовать rev

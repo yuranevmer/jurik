@@ -39,7 +39,7 @@ class Violation:
 
 
 @dataclass
-class _Commit:
+class MainCommit:
     sha: str
     parents: list[str]
     trailers: list[tuple[str, str]]
@@ -50,7 +50,7 @@ class CheckError(RuntimeError):
     """The repository cannot be read by git."""
 
 
-def _git(repo: Path, *args: str) -> bytes:
+def git(repo: Path, *args: str) -> bytes:
     proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True)
     if proc.returncode != 0:
         err = proc.stderr.decode("utf-8", "replace").strip()
@@ -58,20 +58,20 @@ def _git(repo: Path, *args: str) -> bytes:
     return proc.stdout
 
 
-def _main_log(repo: Path) -> list[_Commit]:
+def main_log(repo: Path) -> list[MainCommit]:
     """First-parent history of ``main``, oldest first."""
-    out = _git(repo, "log", "--first-parent", "--reverse", "--format=%H%x00%P%x00%B%x1e", MAIN)
-    commits: list[_Commit] = []
+    out = git(repo, "log", "--first-parent", "--reverse", "--format=%H%x00%P%x00%B%x1e", MAIN)
+    commits: list[MainCommit] = []
     for rec in out.decode("utf-8", "replace").split("\x1e"):
         if not rec.strip():
             continue
         sha, parents, body = rec.lstrip("\n").split("\x00", 2)
         subject = body.strip().split("\n", 1)[0]
-        commits.append(_Commit(sha, parents.split(), parse_trailers(body), subject))
+        commits.append(MainCommit(sha, parents.split(), parse_trailers(body), subject))
     return commits
 
 
-def _in_force(c: _Commit) -> date | None:
+def in_force_of(c: MainCommit) -> date | None:
     for key, value in c.trailers:
         if key == "In-force":
             try:
@@ -93,13 +93,13 @@ def _edition_date(key: str) -> date | None:
         return None
 
 
-def check_editions(commits: Sequence[_Commit], steps: Sequence[Step]) -> list[Violation]:
+def check_editions(commits: Sequence[MainCommit], steps: Sequence[Step]) -> list[Violation]:
     """(a) every planned edition is in exactly one ``main`` commit with its In-force date."""
     expected = {edition_key(e.zakon_id, e.date) for s in steps if s.ref == MAIN for e in s.editions}
     seen: Counter[str] = Counter()
     out: list[Violation] = []
     for c in commits:
-        in_force = _in_force(c)
+        in_force = in_force_of(c)
         for key, value in c.trailers:
             if key != "Edition":
                 continue
@@ -116,12 +116,12 @@ def check_editions(commits: Sequence[_Commit], steps: Sequence[Step]) -> list[Vi
     return out
 
 
-def check_in_force(commits: Sequence[_Commit]) -> list[Violation]:
+def check_in_force(commits: Sequence[MainCommit]) -> list[Violation]:
     """(b) every first-parent ``main`` commit has ``In-force:`` and it never decreases."""
     out: list[Violation] = []
     prev: date | None = None
     for c in commits:
-        d = _in_force(c)
+        d = in_force_of(c)
         if d is None:
             out.append(Violation("b", f"{c.sha[:10]} {c.subject!r}: no valid In-force"))
             continue
@@ -133,7 +133,7 @@ def check_in_force(commits: Sequence[_Commit]) -> list[Violation]:
 
 def _main_files(repo: Path, prefix: str) -> dict[str, bytes]:
     """``.md`` files of ``main`` under ``prefix`` (read from git, not the work tree)."""
-    names = _git(repo, "ls-tree", "-r", "-z", "--name-only", MAIN, "--", prefix)
+    names = git(repo, "ls-tree", "-r", "-z", "--name-only", MAIN, "--", prefix)
     paths = [p for p in names.decode("utf-8").split("\x00") if p.endswith(".md")]
     if not paths:
         return {}
@@ -166,14 +166,14 @@ def check_text(repo: Path, prints: Mapping[str, str | Sequence[str]]) -> list[Vi
 
 
 def check_branches(
-    repo: Path, commits: Sequence[_Commit], steps: Sequence[Step]
+    repo: Path, commits: Sequence[MainCommit], steps: Sequence[Step]
 ) -> list[Violation]:
     """(d) each merged ``bill/*`` branch tip is merged into ``main`` exactly once."""
     merged = Counter(p for c in commits for p in c.parents[1:])
     out: list[Violation] = []
     for ref in sorted({s.branch for s in steps if s.kind == "merge" and s.branch}):
         try:
-            tip = _git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{ref}^{{commit}}")
+            tip = git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{ref}^{{commit}}")
         except CheckError:
             out.append(Violation("d", f"{ref}: branch is missing"))
             continue
@@ -191,7 +191,7 @@ def check_repo(
     ``prints`` maps the slug of every code still in force to the print html of the latest
     edition of each of its documents (a list for КУпАП).
     """
-    commits = _main_log(repo_path)
+    commits = main_log(repo_path)
     violations = [
         *check_editions(commits, steps),
         *check_in_force(commits),

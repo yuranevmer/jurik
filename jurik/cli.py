@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import date, datetime
 from pathlib import Path
 
 import click
@@ -19,12 +20,23 @@ from jurik.build.history import (
     write_steps,
 )
 from jurik.config import Code, ConfigError, Paths, get_code, load_codes
+from jurik.export import ExportError
+from jurik.export import export as export_dataset
+from jurik.model import Edition
 from jurik.parse import EditionCheck, failures_report, parse_code
 from jurik.rada.billtext import BillTexts
 from jurik.rada.client import CONVOCATIONS, RadaClient, RadaError
 from jurik.rada.index import build_index
 from jurik.rada.match import coverage_report
 from jurik.render import RenderError
+from jurik.report import (
+    CodeCoverage,
+    branches_by_code,
+    code_coverage,
+    coverage_markdown,
+    not_cached,
+    repo_stats,
+)
 from jurik.zakon.card import CardParseError, base_kind, parse_card
 from jurik.zakon.fetch import FetchResult, fetch_code
 from jurik.zakon.http import ZakonClient, read_gz
@@ -43,10 +55,6 @@ def make_rada_client(cache: Path, *, refetch: bool = False) -> RadaClient:
 def make_bill_texts(cache: Path) -> BillTexts:
     """Factory for bill text downloads (patched in tests)."""
     return BillTexts(cache, echo=lambda msg: click.echo(msg, err=True))
-
-
-def _not_implemented(name: str) -> None:
-    raise click.ClickException(f"'{name}' is not implemented yet")
 
 
 @click.group()
@@ -223,15 +231,105 @@ def latest_prints(sources: list[CodeSource], client: ZakonClient) -> dict[str, l
 
 
 @main.command()
-def report() -> None:
-    """Write report/coverage.md and report/parse-failures.md."""
-    _not_implemented("report")
+@click.option("--code", "code_slugs", multiple=True, help="Code slug (repeatable); default all.")
+@click.option(
+    "--repo",
+    type=click.Path(path_type=Path),
+    default=Path("build/laws"),
+    help="Built repository for commit and branch counts.",
+)
+def report(code_slugs: tuple[str, ...], repo: Path) -> None:
+    """Write report/coverage.md and report/parse-failures.md.
+
+    Parses every cached in-force edition (no downloads); codes without a cached card are
+    listed as not fetched.
+    """
+    paths = Paths(Path.cwd())
+    try:
+        codes = load_codes()
+        selected = [get_code(codes, s) for s in code_slugs] if code_slugs else codes
+    except ConfigError as e:
+        raise click.ClickException(str(e)) from e
+    try:
+        index = build_index(paths.cache)
+    except RadaError as e:
+        click.echo(f"warning: no law index ({e})", err=True)
+        index = None
+    stats = repo_stats(repo)
+    branch_counts = branches_by_code(stats[1], selected) if stats else None
+    rows: list[CodeCoverage] = []
+    checks: list[EditionCheck] = []
+    missing: list[str] = []
+    with make_zakon_client(paths.cache) as client:
+        for code in selected:
+            editions = cached_editions(code, client)
+            if editions is None:
+                missing.append(code.slug)
+                continue
+            click.echo(f"{code.slug}: parsing {len(editions)} edition(s)")
+            code_checks = parse_code(code, client, all_editions=True, echo=lambda _: None)
+            checks += [c for c in code_checks if not not_cached(c)]
+            branches = branch_counts.get(code.slug) if branch_counts is not None else None
+            rows.append(code_coverage(code, editions, code_checks, index, branches))
+    open_data: list[str] = []
+    if index is not None:
+        open_data = coverage_report(index, selected, cached_code_bases(selected, paths.cache))
+    paths.report.mkdir(parents=True, exist_ok=True)
+    coverage_path = paths.report / "coverage.md"
+    coverage_path.write_text(
+        coverage_markdown(
+            rows,
+            repo=stats[0] if stats else None,
+            repo_path=str(repo),
+            open_data=open_data,
+            missing=missing,
+        ),
+        encoding="utf-8",
+    )
+    (paths.report / "parse-failures.md").write_text(failures_report(checks), encoding="utf-8")
+    failed = sum(not c.ok for c in checks)
+    click.echo(
+        f"{coverage_path}: {len(rows)} code(s), {len(checks)} cached edition(s) parsed,"
+        f" {failed} failed"
+    )
+
+
+def cached_editions(code: Code, client: ZakonClient) -> list[Edition] | None:
+    """In-force editions of every document of ``code`` from cached cards; None if a card
+    is not cached or cannot be parsed."""
+    editions: list[Edition] = []
+    for zakon_id in code.zakon_ids:
+        path = client.card_path(zakon_id)
+        if not path.is_file():
+            return None
+        try:
+            editions += parse_card(read_gz(path), zakon_id).current()
+        except CardParseError:
+            return None
+    return editions
 
 
 @main.command()
-@click.option("--at", "at_date", help="State at date YYYY-MM-DD.")
-@click.option("--with-bills", is_flag=True, help="Include bill texts.")
+@click.option(
+    "--at",
+    "at_date",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    help="State at date YYYY-MM-DD (by In-force:); default today.",
+)
+@click.option("--with-bills", is_flag=True, help="Also export texts of bills that are not law.")
+@click.option(
+    "--repo", type=click.Path(path_type=Path), default=Path("build/laws"), help="Built repository."
+)
 @click.option("--out", type=click.Path(path_type=Path), required=True)
-def export(at_date: str | None, with_bills: bool, out: Path) -> None:
-    """Export a dataset from main at a given date."""
-    _not_implemented("export")
+def export(at_date: datetime | None, with_bills: bool, repo: Path, out: Path) -> None:
+    """Export the markdown of main in force on a date, plus manifest.json."""
+    at = at_date.date() if at_date else date.today()
+    try:
+        res = export_dataset(repo, at, out, with_bills=with_bills)
+    except (ExportError, CheckError) as e:
+        raise click.ClickException(str(e)) from e
+    msg = f"{out}: {res.files} file(s) of {len(res.codes)} code(s) at {res.commit[:10]}"
+    msg += f" (In-force {res.in_force})"
+    if with_bills:
+        msg += f", {len(res.bills)} bill(s)"
+    click.echo(msg)

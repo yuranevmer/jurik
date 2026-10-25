@@ -1,17 +1,9 @@
 import gzip
 
-import pytest
 from click.testing import CliRunner
 
 from jurik import cli
 from jurik.cli import main
-
-
-@pytest.mark.parametrize("cmd", [["report"], ["export", "--out", "x"]])
-def test_stub_commands_exist(cmd):
-    result = CliRunner().invoke(main, cmd)
-    assert result.exit_code == 1
-    assert "not implemented" in result.output
 
 
 def test_help_lists_commands():
