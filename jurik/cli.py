@@ -7,9 +7,11 @@ from pathlib import Path
 
 import click
 
+from jurik.build.check import CheckError, check_repo
 from jurik.build.fastimport import FastImportError, Stream, run
 from jurik.build.history import (
     BuildError,
+    CodeSource,
     cached_tree_loader,
     plan_full,
     plan_linear,
@@ -24,7 +26,7 @@ from jurik.rada.match import coverage_report
 from jurik.render import RenderError
 from jurik.zakon.card import CardParseError, base_kind, parse_card
 from jurik.zakon.fetch import FetchResult, fetch_code
-from jurik.zakon.http import ZakonClient
+from jurik.zakon.http import ZakonClient, read_gz
 
 
 def make_zakon_client(cache: Path, *, refetch: bool = False) -> ZakonClient:
@@ -164,10 +166,12 @@ def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, ou
             sources = sources_from_cache(selected, client)
             plan = plan_linear if linear else plan_full
             steps = plan(sources, cached_tree_loader(client), index=index)
+            prints = latest_prints(sources, client)
         stream = Stream()
         write_steps(steps, stream)
         run(stream, out)
-    except (BuildError, FastImportError, RenderError) as e:
+        violations = check_repo(out, steps, prints)
+    except (BuildError, FastImportError, RenderError, CheckError) as e:
         raise click.ClickException(str(e)) from e
     took = time.monotonic() - started
     branches = len({s.ref for s in steps if s.kind == "branch"})
@@ -176,6 +180,26 @@ def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, ou
         f"{out}: {stream.commit_count} commits, {branches} branches, {merges} merges, "
         f"{stream.blob_count} blobs, {len(selected)} code(s), {took:.1f}s"
     )
+    for v in violations:
+        click.echo(f"VIOLATION {v}", err=True)
+    if violations:
+        raise click.ClickException(f"check_repo: {len(violations)} violation(s)")
+    click.echo("check_repo: 0 violations")
+
+
+def latest_prints(sources: list[CodeSource], client: ZakonClient) -> dict[str, list[str]]:
+    """Print html of the latest edition of each document of every code still in force."""
+    out: dict[str, list[str]] = {}
+    for src in sources:
+        if src.code.repealed:
+            continue
+        htmls = []
+        for zakon_id in src.code.zakon_ids:
+            if eds := src.editions.get(zakon_id):
+                path = client.edition_path(zakon_id, f"{eds[-1].date:%Y%m%d}")
+                htmls.append(read_gz(path))
+        out[src.code.slug] = htmls
+    return out
 
 
 @main.command()

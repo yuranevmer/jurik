@@ -87,6 +87,7 @@ def test_cli_build_linear_from_cache(tmp_path, fixtures_dir, monkeypatch):
     result = CliRunner().invoke(main, ["build", "--linear", "--code", "family", "--out", "laws"])
     assert result.exit_code == 0, result.output
     assert "2 commits" in result.output
+    assert "check_repo: 0 violations" in result.output
     log = subprocess.run(
         ["git", "-C", "laws", "log", "--format=%s"], capture_output=True, text=True, check=True
     ).stdout.splitlines()
@@ -127,6 +128,7 @@ def test_cli_build_full_creates_bill_branch(tmp_path, fixtures_dir, monkeypatch)
     result = CliRunner().invoke(main, ["build", "--code", "family", "--out", "laws"])
     assert result.exit_code == 0, result.output
     assert "3 commits, 1 branches, 1 merges" in result.output
+    assert "check_repo: 0 violations" in result.output
     refs = subprocess.run(
         ["git", "-C", "laws", "for-each-ref", "--format=%(refname:short)", "refs/heads"],
         capture_output=True,

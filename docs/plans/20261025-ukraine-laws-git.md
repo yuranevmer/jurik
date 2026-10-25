@@ -503,10 +503,11 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - ⚠️ (Task 9) для (c) использовать `jurik.verify.verify_edition(files, html)` (html может быть списком для КУпАП); `files` = `.md` из рабочего дерева кодекса
 - ⚠️ (Task 12) для (a) использовать трейлеры `Edition: <zakon_id>/edYYYYMMDD` (zakon_id может содержать `/`, напр. `254к/96-ВР/ed19960628` — резать по последнему `/ed`); `message.parse_trailers(text)` разбирает трейлеры; коммиты с пустым change set существуют (редакция без видимых изменений текста)
 - ⚠️ (Task 13) коммиты веток `bill/*` достижимы из `main` через второго родителя, но не несут `In-force:`/`Edition:`: проверки (a)/(b) делать по `git log --first-parent main`; у `Step` есть `kind`/`ref`/`parents`/`branch` для (d)
-- [ ] `check_repo(repo_path, steps, trees) -> list[Violation]`: (a) каждая редакция отображена ровно в один коммит `main` (по `In-force:` + `Law:`); (b) `In-force:` по `--first-parent main` не убывает; (c) рабочее дерево `main` по словам совпадает с print последней редакции каждого кодекса (переиспользует Task 9); (d) у каждой ветки `bill/*` с merge ровно один путь в `main`
-- [ ] `jurik build` запускает `check_repo` в конце; ненулевой exit code при нарушениях
-- [ ] write tests: мини-репозиторий из 3 синтетических редакций без нарушений; подменить `In-force:` → (b); пропустить редакцию → (a); испортить файл → (c)
-- [ ] run tests - must pass before next task
+- [x] `check_repo(repo_path, steps, trees) -> list[Violation]`: (a) каждая редакция отображена ровно в один коммит `main` (по `In-force:` + `Law:`); (b) `In-force:` по `--first-parent main` не убывает; (c) рабочее дерево `main` по словам совпадает с print последней редакции каждого кодекса (переиспользует Task 9); (d) у каждой ветки `bill/*` с merge ровно один путь в `main`
+- [x] `jurik build` запускает `check_repo` в конце; ненулевой exit code при нарушениях
+- [x] write tests: мини-репозиторий из 3 синтетических редакций без нарушений; подменить `In-force:` → (b); пропустить редакцию → (a); испортить файл → (c)
+- [x] run tests - must pass before next task
+- ✅ итог (Task 14): `jurik/build/check.py`: `check_repo(repo_path, steps, prints) -> list[Violation]` (`Violation(check="a"|"b"|"c"|"d", message)`); третий аргумент = `prints: {slug: [print html последней редакции каждого документа]}` (не деревья: (c) идёт через `verify_edition`, которому нужен html), отменённые кодексы не передаются. (a) по трейлерам `Edition:` в `--first-parent main`: каждая редакция из шагов `main` ровно в одном коммите и `In-force:` коммита = дата редакции (`Law:` не сверяется — там display-номер, а не nreg); (b) `In-force:` есть и не убывает; (c) `.md` под `codes/<slug>/` читаются из дерева `main` через git (не с диска); (d) для каждой ветки, которую план мержит, её tip — второй родитель ровно одного коммита `--first-parent main`. Также `check_editions`/`check_in_force`/`check_text`/`check_branches` по отдельности. `jurik build` печатает `check_repo: 0 violations` или `VIOLATION (x) …` в stderr и exit 1; `cli.latest_prints(sources, client)`. Смоук Сімейний+Конституція (full и `--linear`): 0 нарушений
 
 ### Task 15: Тексты законопроектов и ветки отклонённых
 
@@ -555,6 +556,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 
 - [ ] `build/laws`: число коммитов `--first-parent main` = число шагов из отчёта; число веток `bill/*` = число законов с ветками + отклонённых
 - [ ] `git log --follow codes/tax/.../art-0014.md` показывает историю статьи с осмысленными сообщениями
+- ⚠️ (Task 14) `check.check_text`/`_main_files` читают дерево `main` (константа); для сверки на дату использовать `verify_edition` на файлах экспорта или параметризовать rev
 - [ ] `jurik export --at 2015-01-01` даёт текст, совпадающий по словам с zakon на эту дату для Сімейного и Податкового (инвариант (c) на произвольной дате)
 - [ ] ручная выборка: 20 случайных merge-коммитов сверены глазами с текстом закона «Про внесення змін» на zakon; результат в `docs/pilot-build.md`
 - [ ] `git diff` случайной ветки против её базы содержит только статьи, упомянутые в законе
