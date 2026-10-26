@@ -1,23 +1,22 @@
 import gzip
 import json
-import subprocess
 from datetime import date
 
 import pytest
-from gitrepo import git, tree_files
+from gitrepo import git, git_ok, tree_files
 
 from jurik.build.fastimport import Stream, run
 from jurik.build.history import (
     BuildError,
     CodeSource,
-    cached_tree_loader,
+    law_sort_key,
     plan_full,
     plan_linear,
     reason_of,
-    sources_from_cache,
     write_steps,
 )
 from jurik.build.message import parse_trailers
+from jurik.build.sources import cached_tree_loader, sources_from_cache
 from jurik.config import Code
 from jurik.model import Article, BillRef, DocTree, Edition, LawMeta, Person, Unit
 from jurik.rada.index import LawIndex
@@ -568,8 +567,7 @@ def test_rejected_bill_branch_without_merge(tmp_path):
     refs = git(repo, "for-each-ref", "--format=%(refname:short)").split()
     assert "bill/4/5555-d" in refs and "bill/4/1000" in refs
     for ref in ("bill/4/5555-d", "bill/4/1000"):
-        cmd = ["git", "-C", str(repo), "merge-base", "--is-ancestor", ref, "main"]
-        assert subprocess.run(cmd).returncode == 1  # never merged into main
+        assert not git_ok(repo, "merge-base", "--is-ancestor", ref, "main")  # never merged
     changed = git(repo, "diff", "--name-only", "bill/4/5555-d^", "bill/4/5555-d").split()
     assert changed == ["bills/4/5555-d.md"]
     content = tree_files(repo, "bill/4/5555-d")["bills/4/5555-d.md"].decode()
@@ -704,8 +702,6 @@ def test_same_date_overlapping_bases_are_one_step():
 
 
 def test_law_sort_key_numeric():
-    from jurik.build.history import law_sort_key
-
     assert sorted(["1001-20", "999-20", "5-19", "254к/96-вр"], key=law_sort_key) == [
         "254к/96-вр",
         "5-19",

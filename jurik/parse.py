@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 from jurik.config import Code
-from jurik.render import RenderError, render
+from jurik.errors import JurikError
+from jurik.render import render
 from jurik.verify import VerifyResult, verify_paragraphs
-from jurik.zakon.card import CardParseError, parse_card
-from jurik.zakon.http import ZakonClient, read_gz
+from jurik.zakon.card import CardParseError
+from jurik.zakon.fetch import cached_card
+from jurik.zakon.http import NotCachedError, ZakonClient, ZakonError
 from jurik.zakon.paragraphs import extract_paragraphs
-from jurik.zakon.tree import TreeError, build_tree
+from jurik.zakon.tree import build_tree
 
 
 @dataclass
@@ -22,6 +23,7 @@ class EditionCheck:
     edition: str  # "YYYYMMDD" or "card"
     result: VerifyResult | None = None
     error: str = ""
+    not_cached: bool = False  # not parsed: the print is not downloaded yet (``error`` says so)
 
     @property
     def ok(self) -> bool:
@@ -30,12 +32,6 @@ class EditionCheck:
     def line(self) -> str:
         what = self.error or (self.result.summary() if self.result else "")
         return f"{self.slug} {self.zakon_id} ed{self.edition}: {what}"
-
-
-def _cached(client: ZakonClient, path: Path) -> str:
-    if not path.is_file():
-        raise FileNotFoundError(f"{path} not cached, run `jurik fetch` first")
-    return read_gz(path)
 
 
 def parse_code(
@@ -55,14 +51,14 @@ def parse_code(
     checks: list[EditionCheck] = []
     for zakon_id in code.zakon_ids:
         try:
-            card = parse_card(_cached(client, client.card_path(zakon_id)), zakon_id)
-        except (FileNotFoundError, CardParseError) as e:
+            card = cached_card(client, zakon_id)
+        except (ZakonError, CardParseError) as e:
             checks.append(EditionCheck(code.slug, zakon_id, "card", error=str(e)))
             echo(checks[-1].line())
             continue
         editions = card.current()
         if edition:
-            editions = [e for e in editions if e.date.strftime("%Y%m%d") == edition]
+            editions = [e for e in editions if e.stamp == edition]
             if not editions:
                 checks.append(EditionCheck(code.slug, zakon_id, edition, error="no such edition"))
                 echo(checks[-1].line())
@@ -70,14 +66,15 @@ def parse_code(
         elif not all_editions:
             editions = editions[-1:]
         for ed in editions:
-            ed_date = ed.date.strftime("%Y%m%d")
-            check = EditionCheck(code.slug, zakon_id, ed_date)
+            check = EditionCheck(code.slug, zakon_id, ed.stamp)
             try:
-                html = _cached(client, client.edition_path(zakon_id, ed_date))
+                html = client.cached_edition(zakon_id, ed.stamp)
                 paras = extract_paragraphs(html)
                 files = render(build_tree(paras, ed), code, adopted=card.adopted)
                 check.result = verify_paragraphs(paras, files)
-            except (FileNotFoundError, TreeError, RenderError, ValueError) as e:
+            except NotCachedError as e:
+                check.error, check.not_cached = f"{type(e).__name__}: {e}", True
+            except JurikError as e:
                 check.error = f"{type(e).__name__}: {e}"
             checks.append(check)
             echo(check.line())

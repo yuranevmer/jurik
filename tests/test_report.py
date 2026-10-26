@@ -63,11 +63,12 @@ INDEX = LawIndex(
 
 def test_code_coverage_numbers():
     checks = [check(f"{e.date:%Y%m%d}", ok=i not in (2, 4)) for i, e in enumerate(EDITIONS)]
-    checks[4].error = "FileNotFoundError: ed20060101.html.gz not cached"
+    checks[4].error = "NotCachedError: 1-01 ed20060101 not cached"
+    checks[4].not_cached = True
     row = code_coverage(FAMILY, EDITIONS, checks, INDEX, branches=1)
     assert row == CodeCoverage(
-        "family",
-        "Сімейний кодекс України",
+        slug="family",
+        title="Сімейний кодекс України",
         editions=6,
         cached=5,
         parsed=4,
@@ -93,12 +94,11 @@ def test_code_coverage_without_index():
 
 def test_coverage_markdown_rows_and_totals():
     rows = [
-        CodeCoverage("family", "С", 10, 10, 9, 8, 7, 5, 1, 2, 3),
-        CodeCoverage("tax", "П", 30, 30, 30, 20, 10, 15, 0, 4, 5),
+        coverage("family", "С", 10, 10, 9, 8, 7, 5, 1, 2, 3),
+        coverage("tax", "П", 30, 30, 30, 20, 10, 15, 0, 4, 5),
     ]
-    md = coverage_markdown(
-        rows, repo=RepoStats(40, 12, 6), open_data=["skl4: x"], missing=["civil"]
-    )
+    repo = RepoStats(main_commits=40, bill_branches=12, bills=[bill_branch("")] * 6)
+    md = coverage_markdown(rows, repo=repo, open_data=["skl4: x"], missing=["civil"])
     assert "| family | 10 | 10 (100%) | 9 (90%) | 8 (80%) | 7 (70%) | 5 | 1 (20%) | 2 | 3 |" in md
     assert (
         "| **total** | 40 | 40 (100%) | 39 (98%) | 28 (70%) | 17 (42%) | 20 | 1 (5%) | 6 | 8 |"
@@ -111,10 +111,35 @@ def test_coverage_markdown_rows_and_totals():
     assert "is not built" in coverage_markdown([])
 
 
-def test_branches_by_code():
-    def b(msg):
-        return BillBranch("bill/4/x", "0", 4, "x", "rejected", None, msg)
+def coverage(slug, title, *counts):
+    names = [
+        "editions",
+        "cached",
+        "parsed",
+        "with_bill",
+        "with_votes",
+        "laws",
+        "laws_without_meta",
+        "branches",
+        "bills_by_title",
+    ]
+    return CodeCoverage(slug=slug, title=title, **dict(zip(names, counts, strict=True)))
 
+
+def bill_branch(msg):
+    return BillBranch(
+        ref="bill/4/x",
+        tip="0",
+        convocation=4,
+        number="x",
+        status="rejected",
+        registered=None,
+        message=msg,
+    )
+
+
+def test_branches_by_code():
+    b = bill_branch
     bills = [
         b("Законопроект\n\nСтатус: відхилено.\nСтосується: Сімейний кодекс України.\n"),
         b("X\n\nСтосується: Сімейний кодекс України, Податковий кодекс України.\n"),
@@ -125,9 +150,9 @@ def test_branches_by_code():
 
 def test_repo_stats(tmp_path):
     assert repo_stats(tmp_path / "nothing") is None
-    stats, bills = repo_stats(make_repo(tmp_path))
-    assert stats == RepoStats(main_commits=3, bill_branches=3, unmerged=2)
-    assert branches_by_code(bills, [FAMILY]) == {"family": 2}
+    stats = repo_stats(make_repo(tmp_path))
+    assert (stats.main_commits, stats.bill_branches, stats.unmerged) == (3, 3, 2)
+    assert branches_by_code(stats.bills, [FAMILY]) == {"family": 2}
 
 
 class FakeZakon:

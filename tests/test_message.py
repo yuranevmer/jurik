@@ -4,8 +4,12 @@ import pytest
 
 from jurik.build.message import (
     MessageError,
+    branch_message,
+    edition_id,
     format_message,
+    law_title,
     law_trailers,
+    parse_edition_id,
     parse_trailers,
     step_message,
     subject_for,
@@ -91,8 +95,6 @@ def test_subjects_of_linear_reasons():
 
 
 def test_presidents_proposals_title_is_the_law_title():
-    from jurik.build.message import law_title
-
     m = meta(law_title='Пропозиції Президента України до Закону "Про захист дітей"')
     assert law_title(m) == "Про захист дітей"
     m = meta(law_title="Пропозиції Президента України до Закону про тимчасові комісії")
@@ -123,8 +125,6 @@ def test_merge_message_has_stage_and_unknown_bill():
 
 
 def test_branch_message():
-    from jurik.build.message import branch_message
-
     m = meta(
         initiators=[
             Person("Микола Азаров", "azarov-mykola-yanovych"),
@@ -153,3 +153,11 @@ def test_branch_message():
     )
     assert unknown.startswith("Закон № 999-VI (Податковий)")
     assert ("Bill", "unknown") in parse_trailers(unknown)
+
+
+def test_parse_edition_id_inverts_edition_id():
+    e = Edition("254к/96-вр", date(1996, 6, 28), [], "other", "")
+    assert edition_id(e) == "254к/96-вр/ed19960628"
+    assert parse_edition_id(edition_id(e)) == ("254к/96-вр", "19960628")
+    assert parse_edition_id("2947-14") is None
+    assert parse_edition_id("/ed20020110") is None

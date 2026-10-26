@@ -26,9 +26,10 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 
-from jurik.build.gitcmd import GitError, run_git
-from jurik.build.history import MAIN, Step
-from jurik.build.message import edition_id, parse_trailers
+from jurik.build.history import Step
+from jurik.build.message import EDITION, edition_id, parse_edition_id
+from jurik.build.refs import MAIN
+from jurik.build.repo import MainCommit, RepoError, git, in_force_of, main_log
 from jurik.verify import verify_edition
 
 Check = Literal["a", "b", "c", "d", "e"]
@@ -43,66 +44,29 @@ class Violation:
         return f"({self.check}) {self.message}"
 
 
-@dataclass
-class MainCommit:
-    sha: str
-    parents: list[str]
-    trailers: list[tuple[str, str]]
-    subject: str
-
-
-class CheckError(GitError):
-    """The repository cannot be read by git."""
-
-
-def git(repo: Path, *args: str, input: bytes | None = None) -> bytes:
-    return run_git(repo, *args, input=input, error=CheckError)
-
-
-def main_log(repo: Path) -> list[MainCommit]:
-    """First-parent history of ``main``, oldest first."""
-    out = git(repo, "log", "--first-parent", "--reverse", "--format=%H%x00%P%x00%B%x1e", MAIN)
-    commits: list[MainCommit] = []
-    for rec in out.decode("utf-8", "replace").split("\x1e"):
-        if not rec.strip():
-            continue
-        sha, parents, body = rec.lstrip("\n").split("\x00", 2)
-        subject = body.strip().split("\n", 1)[0]
-        commits.append(MainCommit(sha, parents.split(), parse_trailers(body), subject))
-    return commits
-
-
-def in_force_of(c: MainCommit) -> date | None:
-    for key, value in c.trailers:
-        if key == "In-force":
-            try:
-                return date.fromisoformat(value)
-            except ValueError:
-                return None
-    return None
-
-
 def check_editions(commits: Sequence[MainCommit], steps: Sequence[Step]) -> list[Violation]:
     """(a) every planned edition is in exactly one ``main`` commit with its In-force date."""
     expected = {edition_id(e): s.date for s in steps if s.ref == MAIN for e in s.editions}
     seen: Counter[str] = Counter()
-    last: dict[str, str] = {}  # zakon_id → latest edYYYYMMDD so far
+    last: dict[str, str] = {}  # zakon_id → latest YYYYMMDD so far
     out: list[Violation] = []
     for c in commits:
         in_force = in_force_of(c)
         for key, value in c.trailers:
-            if key != "Edition":
+            if key != EDITION:
                 continue
             seen[value] += 1
-            zakon_id, _, ed = value.rpartition("/")
-            if ed < last.get(zakon_id, ""):
-                out.append(
-                    Violation(
-                        "a", f"{c.sha[:10]}: edition {value} after {zakon_id}/{last[zakon_id]}"
+            if parsed := parse_edition_id(value):
+                zakon_id, stamp = parsed
+                if stamp < last.get(zakon_id, ""):
+                    out.append(
+                        Violation(
+                            "a",
+                            f"{c.sha[:10]}: edition {value} after {zakon_id}/ed{last[zakon_id]}",
+                        )
                     )
-                )
-            else:
-                last[zakon_id] = ed
+                else:
+                    last[zakon_id] = stamp
             if value not in expected:
                 out.append(Violation("a", f"{c.sha[:10]}: edition {value} is not in the plan"))
             elif expected[value] != in_force:
@@ -142,7 +106,7 @@ def _main_files(repo: Path, prefix: str) -> dict[str, bytes]:
         header_end = data.index(b"\n", pos)
         header = data[pos:header_end].split()
         if len(header) != 3:
-            raise CheckError(f"git cat-file {MAIN}:{path}: {b' '.join(header).decode()}")
+            raise RepoError(f"git cat-file {MAIN}:{path}: {b' '.join(header).decode()}")
         size = int(header[2])
         start = header_end + 1
         files[path] = data[start : start + size]
@@ -171,7 +135,7 @@ def check_branches(
     for ref in sorted({s.branch for s in steps if s.kind == "merge" and s.branch}):
         try:
             tip = git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{ref}^{{commit}}")
-        except CheckError:
+        except RepoError:
             out.append(Violation("d", f"{ref}: branch is missing"))
             continue
         n = merged[tip.decode().strip()]
@@ -193,7 +157,7 @@ def _diffs(repo: Path, pairs: Sequence[tuple[str, str]]) -> list[list[str]]:
         elif line.strip():  # header: the sha of ``new``
             diffs.append([])
     if len(diffs) != len(pairs):
-        raise CheckError(f"git diff-tree: {len(diffs)} diffs for {len(pairs)} pairs")
+        raise RepoError(f"git diff-tree: {len(diffs)} diffs for {len(pairs)} pairs")
     return diffs
 
 

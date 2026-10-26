@@ -8,11 +8,10 @@ from datetime import date
 import yaml
 
 from jurik.config import Code
-from jurik.model import Article, DocTree, Unit
+from jurik.errors import JurikError
+from jurik.model import Article, CodeStatus, DocTree, Unit, law_url
 from jurik.translit import roman_to_int, slug
 from jurik.zakon.paragraphs import ORDINALS
-
-SOURCE_URL = "https://zakon.rada.gov.ua/laws/show/{}"
 
 UNIT_LABEL = {
     "final": "",
@@ -30,7 +29,7 @@ UNIT_LABEL = {
 BOOK_ORDINAL = {str(n): word for word, n in reversed(ORDINALS.items())}
 
 
-class RenderError(ValueError):
+class RenderError(JurikError):
     """Two items of a code map to the same file."""
 
 
@@ -44,7 +43,10 @@ def _number_parts(number: str) -> list[str]:
 def unit_prefix(number: str) -> str:
     """'I' → '01', 'XIV' → '14', '1-1' → '01-1', 'XVIII-1' → '18-1', 'III-А' → '03-a'."""
     head, *rest = _number_parts(number)
-    n = int(head) if head.isdigit() else roman_to_int(head)
+    try:
+        n = int(head) if head.isdigit() else roman_to_int(head)
+    except ValueError as e:
+        raise RenderError(f"bad number {number!r}: {e}") from e
     return "-".join([f"{n:02d}", *(p if p.isdigit() else slug(p) for p in rest)])
 
 
@@ -132,15 +134,15 @@ def _joined(texts: list[str]) -> str:
     return "\n\n".join(seen)
 
 
-def meta_yaml(trees: Sequence[DocTree], code: Code, *, adopted: date | None, status: str) -> bytes:
+def meta_yaml(
+    trees: Sequence[DocTree], code: Code, *, adopted: date | None, status: CodeStatus
+) -> bytes:
     ids = [t.zakon_id for t in trees]
     meta = {
         "title": code.title,
         "zakon_id": ids[0] if len(ids) == 1 else ids,
         "adopted": adopted,
-        "source_url": SOURCE_URL.format(ids[0])
-        if len(ids) == 1
-        else [SOURCE_URL.format(i) for i in ids],
+        "source_url": law_url(ids[0]) if len(ids) == 1 else [law_url(i) for i in ids],
         "status": status,
     }
     return yaml.safe_dump(meta, allow_unicode=True, sort_keys=False).encode("utf-8")
@@ -151,7 +153,7 @@ def render(
     code: Code,
     *,
     adopted: date | None = None,
-    status: str = "in_force",
+    status: CodeStatus = "in_force",
 ) -> dict[str, bytes]:
     """Render one code (one or several zakon documents) to {repo path: content}.
 

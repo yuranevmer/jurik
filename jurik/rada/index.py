@@ -24,16 +24,25 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from jurik.convocation import ROMAN_CONVOCATION, ROMAN_TO_NREG
 from jurik.model import BillRef, LawMeta, LawStatus, Person
-from jurik.rada.client import BILLINFO, CONVOCATIONS, RadaError, cache_name, read_cached
+from jurik.rada.client import (
+    BILLINFO,
+    CONVOCATIONS,
+    RadaError,
+    cached_file,
+    check_convocation,
+    read_cached,
+)
 from jurik.translit import slug as make_slug
 
-# displayed convocation suffix of an act number → nreg suffix; III laws appear as -XIV and -III
-ROMAN_TO_NREG = {"XIV": 14, "III": 14, "IV": 15, "V": 16, "VI": 17, "VII": 18, "VIII": 19, "IX": 20}
-ROMAN_CONVOCATION = {"III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7, "VIII": 8, "IX": 9}
 # Cyrillic look-alikes typed in act numbers («229-ІХ»)
 _LATIN = str.maketrans({"І": "I", "Х": "X", "В": "B", "С": "C"})
 
+# max length of a person/organization slug (author e-mail local part)
+PERSON_SLUG_LEN = 80
+# passing title of the signing stage («Закон … з підписом від Президента»)
+SIGNED_PASSING = "з підписом від президента"
 PASS_THRESHOLD = 226  # used only when the dataset has no voting_result (III convocation)
 FINAL_VOTE_RE = re.compile(r"в\s+цілому", re.IGNORECASE)
 FIRST_READING_RE = re.compile(r"за\s+основу|першому\s+читанні", re.IGNORECASE)
@@ -100,7 +109,7 @@ def parse_day(value: str | None) -> date | None:
     return None if d.year < 1990 else d
 
 
-def law_title(bill_title: str) -> str:
+def bill_law_title(bill_title: str) -> str:
     """``Проєкт Закону про внесення змін …`` → ``Про внесення змін …``."""
     t = re.sub(r"\s+", " ", bill_title or "").strip()
     stripped = LAW_PREFIX_RE.sub("", t, count=1)
@@ -124,7 +133,9 @@ def person(surname: str, firstname: str = "", patronymic: str = "") -> Person | 
     if not surname:
         return None
     name = f"{firstname} {surname}".strip()
-    return Person(name=name, slug=make_slug(f"{surname} {firstname} {patronymic}", max_len=80))
+    return Person(
+        name=name, slug=make_slug(f"{surname} {firstname} {patronymic}", max_len=PERSON_SLUG_LEN)
+    )
 
 
 def person_from_fio(fio: str) -> Person | None:
@@ -159,13 +170,6 @@ def _dedupe(people: Iterable[Person | None]) -> list[Person]:
 
 
 # --- reading cached files -----------------------------------------------------------------
-
-
-def _file(cache: Path, n: int, name: str) -> Path:
-    path = Path(cache) / "rada" / f"skl{n}" / cache_name(name)
-    if not path.is_file():
-        raise RadaError(f"{path}: not cached, run `jurik rada --convocation {n}` first")
-    return path
 
 
 def read_csv(path: Path, required: Iterable[str]) -> list[dict[str, str]]:
@@ -216,7 +220,7 @@ def _int(s: str) -> int:
 def load_votes(cache: Path, n: int) -> dict[str, list[Vote]]:
     """Bill votes of convocation ``n`` (final and stage-less) by normalized bill number."""
     agenda = read_csv(
-        _file(cache, n, f"plenary_agenda-skl{n}.csv"), ("id_question", "number_question")
+        cached_file(cache, n, f"plenary_agenda-skl{n}.csv"), ("id_question", "number_question")
     )
     numbers = {
         r["id_question"]: norm_bill_number(r["number_question"])
@@ -226,12 +230,12 @@ def load_votes(cache: Path, n: int) -> dict[str, list[Vote]]:
     results = {
         r["id_event"]: r
         for r in read_csv(
-            _file(cache, n, f"plenary_result_event-skl{n}.csv"),
+            cached_file(cache, n, f"plenary_result_event-skl{n}.csv"),
             ("id_event", "for", "against", "abstain", "voting_result"),
         )
     }
     events = read_csv(
-        _file(cache, n, f"plenary_event_question-skl{n}.csv"),
+        cached_file(cache, n, f"plenary_event_question-skl{n}.csv"),
         ("id_question", "date_event", "name_event", "id_event"),
     )
     votes: dict[str, list[Vote]] = {}
@@ -258,9 +262,7 @@ def load_votes(cache: Path, n: int) -> dict[str, list[Vote]]:
     return votes
 
 
-def pick_vote(
-    candidates: list[Vote], adopted: date | None
-) -> tuple[int, int, int] | None:
+def pick_vote(candidates: list[Vote], adopted: date | None) -> tuple[int, int, int] | None:
     """The vote that adopted a bill.
 
     Priority: passed «в цілому» on the adoption day, a passed bill vote without a stage on
@@ -301,29 +303,29 @@ class _Bill:
 
 def _csv_bills(cache: Path, n: int) -> Iterator[_Bill]:
     main = read_csv(
-        _file(cache, n, f"bills_main-skl{n}.csv"),
+        cached_file(cache, n, f"bills_main-skl{n}.csv"),
         ("bill_id", "type", "title", "number", "registrationDate", "currentPhase_title"),
     )
     acts: dict[str, dict[str, str]] = {}
     for r in read_csv(
-        _file(cache, n, f"bills_acts-skl{n}.csv"), ("bill_id", "act_number", "act_date")
+        cached_file(cache, n, f"bills_acts-skl{n}.csv"), ("bill_id", "act_number", "act_date")
     ):
         acts.setdefault(r["bill_id"], r)
     initiators: dict[str, list[Person | None]] = {}
     for r in read_csv(
-        _file(cache, n, f"bills_initiators-skl{n}.csv"), ("bill_id", "person", "organization")
+        cached_file(cache, n, f"bills_initiators-skl{n}.csv"), ("bill_id", "person", "organization")
     ):
         p = person_from_fio(r["person"])
         if p is None and r["organization"].strip():
             org = r["organization"].strip()
-            p = Person(name=org, slug=make_slug(org, max_len=80))
+            p = Person(name=org, slug=make_slug(org, max_len=PERSON_SLUG_LEN))
         initiators.setdefault(r["bill_id"], []).append(p)
     signed: dict[str, date] = {}
     for r in read_csv(
-        _file(cache, n, f"bills_passings-skl{n}.csv"),
+        cached_file(cache, n, f"bills_passings-skl{n}.csv"),
         ("bill_id", "passing_date", "passing_title"),
     ):
-        if "з підписом від президента" in r["passing_title"].lower():
+        if SIGNED_PASSING in r["passing_title"].lower():
             d = parse_day(r["passing_date"])
             if d:
                 signed[r["bill_id"]] = max(d, signed.get(r["bill_id"], d))
@@ -355,12 +357,12 @@ def _billinfo_person(entry: dict) -> Person | None:
             return found
         org = (part.get("organization") or part.get("post") or "").strip()
         if org:
-            return Person(name=org, slug=make_slug(org, max_len=80))
+            return Person(name=org, slug=make_slug(org, max_len=PERSON_SLUG_LEN))
     return None
 
 
 def _billinfo_bills(cache: Path) -> Iterator[_Bill]:
-    path = _file(cache, 9, BILLINFO)
+    path = cached_file(cache, 9, BILLINFO)
     for i, b in enumerate(read_billinfo(path)):
         try:
             conv = ROMAN_CONVOCATION.get(
@@ -369,7 +371,7 @@ def _billinfo_bills(cache: Path) -> Iterator[_Bill]:
             signed = [
                 parse_day(p.get("date"))
                 for p in b.get("passings") or []
-                if "з підписом від президента" in (p.get("title") or "").lower()
+                if SIGNED_PASSING in (p.get("title") or "").lower()
             ]
             signed = [d for d in signed if d]
             phase = b.get("currentPhase") or {}
@@ -395,8 +397,7 @@ def build_index(cache: Path, convocations: Iterable[int] = CONVOCATIONS) -> LawI
     """Index law bills of the given convocations; all files must already be cached."""
     convs = sorted(set(convocations))
     for n in convs:
-        if n not in CONVOCATIONS:
-            raise RadaError(f"convocation {n} is outside III–IX (3..9)")
+        check_convocation(n)
     votes = {n: load_votes(cache, n) for n in convs}
     index = LawIndex(convocations=convs)
     for n in convs:
@@ -420,7 +421,7 @@ def build_index(cache: Path, convocations: Iterable[int] = CONVOCATIONS) -> LawI
                 ]
             meta = LawMeta(
                 law_number=nreg or "",
-                law_title=law_title(bill.title),
+                law_title=bill_law_title(bill.title),
                 bill=bill.ref,
                 initiators=bill.initiators,
                 registered=bill.registered,

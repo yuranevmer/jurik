@@ -15,6 +15,7 @@ from jurik.rada.billtext import (
     to_markdown,
 )
 from jurik.rada.client import RadaClient
+from jurik.rada.index import read_billinfo
 
 
 @pytest.fixture
@@ -103,8 +104,6 @@ def test_documents_from_open_data(rada_cache):
     docs = csv_documents(rada_cache, 5)
     assert docs["0903"].url.endswith("pf35401=89729")
     assert "2221" not in docs  # no «Проект Закону» document
-    from jurik.rada.index import read_billinfo
-
     ix = billinfo_documents(read_billinfo(rada_cache / "rada" / "skl9" / "billinfo-skl9.zip"))
     assert ix["15112-д"].file_id == "3454906"
 

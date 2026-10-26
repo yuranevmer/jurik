@@ -9,8 +9,13 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Self
 
 import httpx
+
+BASE_URL = "https://data.rada.gov.ua"
+# data.rada.gov.ua serves the API and open data only to this User-Agent
+OPENDATA_UA = "OpenData"
 
 
 class ThrottledHttp:
@@ -89,6 +94,48 @@ class ThrottledHttp:
                 raise self.error(f"{url}: HTTP {resp.status_code}{extra}")
             return resp
         raise self.error(f"{url}: failed after {self.retries + 1} attempts ({last_error})")
+
+
+class OpenDataClient:
+    """Base of the data.rada.gov.ua clients: a cache directory and a ``ThrottledHttp`` with
+    the OpenData User-Agent that raises ``error``; usable as a context manager."""
+
+    def __init__(
+        self,
+        cache_dir: Path,
+        *,
+        refetch: bool,
+        error: type[Exception],
+        min_interval: float,
+        retries: int,
+        backoff: float,
+        timeout: float,
+        transport: httpx.BaseTransport | None,
+        sleep: Callable[[float], None],
+        clock: Callable[[], float],
+    ) -> None:
+        self.cache_dir = cache_dir
+        self.refetch = refetch
+        self._http = ThrottledHttp(
+            user_agent=OPENDATA_UA,
+            error=error,
+            min_interval=min_interval,
+            retries=retries,
+            backoff=backoff,
+            timeout=timeout,
+            transport=transport,
+            sleep=sleep,
+            clock=clock,
+        )
+
+    def close(self) -> None:
+        self._http.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
 
 def write_atomic(path: Path, data: bytes) -> None:

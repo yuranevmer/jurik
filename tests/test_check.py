@@ -5,10 +5,11 @@ import pytest
 from gitrepo import git
 
 from jurik.build.changeset import ChangeSet
-from jurik.build.check import CheckError, check_repo
+from jurik.build.check import check_repo
 from jurik.build.fastimport import Stream, run
 from jurik.build.history import CodeSource, plan_full, plan_linear, write_steps
-from jurik.cli import latest_prints
+from jurik.build.repo import RepoError
+from jurik.build.sources import latest_prints
 from jurik.config import Code
 from jurik.model import Edition
 from jurik.zakon.card import edition_kind
@@ -212,7 +213,7 @@ def test_branch_merged_twice_is_d(tmp_path):
 
 
 def test_not_a_git_repo_is_check_error(tmp_path):
-    with pytest.raises(CheckError, match="git log"):
+    with pytest.raises(RepoError, match="git log"):
         check_repo(tmp_path / "nothing", plan(), PRINTS)
 
 

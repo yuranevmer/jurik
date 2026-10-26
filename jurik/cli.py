@@ -8,40 +8,29 @@ from pathlib import Path
 
 import click
 
-from jurik.build.check import CheckError, check_repo
+from jurik.build.check import check_repo
 from jurik.build.fastimport import Stream, run
-from jurik.build.gitcmd import GitError
-from jurik.build.history import (
-    BuildError,
-    CodeSource,
-    cached_tree_loader,
-    plan_full,
-    plan_linear,
-    sources_from_cache,
-    write_steps,
-)
+from jurik.build.history import plan_full, plan_linear, write_steps
 from jurik.build.readme import add_readme
+from jurik.build.sources import cached_tree_loader, latest_prints, sources_from_cache
 from jurik.config import Code, ConfigError, Paths, get_code, load_codes
-from jurik.export import ExportError
+from jurik.errors import JurikError
 from jurik.export import export as export_dataset
-from jurik.model import Edition, kyiv_today
+from jurik.model import kyiv_today
 from jurik.parse import EditionCheck, failures_report, parse_code
 from jurik.rada.billtext import BillTexts
 from jurik.rada.client import CONVOCATIONS, RadaClient, RadaError
-from jurik.rada.index import build_index
+from jurik.rada.index import LawIndex, build_index
 from jurik.rada.match import coverage_report
-from jurik.render import RenderError
 from jurik.report import (
     CodeCoverage,
     branches_by_code,
     code_coverage,
     coverage_markdown,
-    not_cached,
     repo_stats,
 )
-from jurik.zakon.card import base_kind
-from jurik.zakon.fetch import FetchResult, cached_cards, fetch_code
-from jurik.zakon.http import ZakonClient, read_gz
+from jurik.zakon.fetch import FetchResult, cached_code_bases, cached_editions, fetch_code
+from jurik.zakon.http import ZakonClient
 
 
 def make_zakon_client(cache: Path, *, refetch: bool = False) -> ZakonClient:
@@ -59,6 +48,24 @@ def make_bill_texts(cache: Path) -> BillTexts:
     return BillTexts(cache, echo=lambda msg: click.echo(msg, err=True))
 
 
+def _select_codes(slugs: tuple[str, ...] | list[str]) -> list[Code]:
+    """Codes of ``codes.yaml`` with these slugs (all when empty); bad config → CLI error."""
+    try:
+        codes = load_codes()
+        return [get_code(codes, s) for s in slugs] if slugs else codes
+    except ConfigError as e:
+        raise click.ClickException(str(e)) from e
+
+
+def _load_index(cache: Path, warning: str) -> LawIndex | None:
+    """The Rada law index, or None with ``warning: no law index (…)<warning>`` on stderr."""
+    try:
+        return build_index(cache)
+    except RadaError as e:
+        click.echo(f"warning: no law index ({e}){warning}", err=True)
+        return None
+
+
 @click.group()
 def main() -> None:
     """Build a git repository of Ukrainian codes with legislative history."""
@@ -68,12 +75,8 @@ def main() -> None:
 @click.option("--code", "code_slug", help="Code slug from codes.yaml.")
 @click.option("--refetch", is_flag=True, help="Re-download even if cached.")
 def fetch(code_slug: str | None, refetch: bool) -> None:
-    """Download cards and editions from zakon.rada.gov.ua into cache/zakon/."""
-    try:
-        codes = load_codes()
-        selected = [get_code(codes, code_slug)] if code_slug else codes
-    except ConfigError as e:
-        raise click.ClickException(str(e)) from e
+    """Download cards and editions (data.rada.gov.ua open data API) into cache/zakon/."""
+    selected = _select_codes([code_slug] if code_slug else [])
     failed: list[FetchResult] = []
     with make_zakon_client(Paths(Path.cwd()).cache, refetch=refetch) as client:
         for code in selected:
@@ -104,26 +107,10 @@ def rada(convocation: int | None, refetch: bool) -> None:
         index = build_index(paths.cache, convocations)
     except (ConfigError, RadaError) as e:
         raise click.ClickException(str(e)) from e
-    bases = cached_code_bases(codes, paths.cache)
+    with make_zakon_client(paths.cache) as zakon:
+        bases = cached_code_bases(codes, zakon)
     for line in coverage_report(index, codes, bases):
         click.echo(line)
-
-
-def cached_code_bases(codes: list[Code], cache: Path) -> dict[str, list[str]]:
-    """Law bases of every edition of each code whose card is already cached (no network)."""
-    out: dict[str, list[str]] = {}
-    with make_zakon_client(cache) as client:
-        for code in codes:
-            cards = cached_cards(code, client)
-            if cards is not None:
-                out[code.slug] = [
-                    b
-                    for card in cards.values()
-                    for ed in card.editions
-                    for b in ed.bases
-                    if base_kind(b) == "law"
-                ]
-    return out
 
 
 @main.command()
@@ -135,11 +122,7 @@ def parse(code_slug: str | None, edition: str | None, all_editions: bool) -> Non
 
     Default: the latest edition of each document. Failures go to report/parse-failures.md.
     """
-    try:
-        codes = load_codes()
-        selected = [get_code(codes, code_slug)] if code_slug else codes
-    except ConfigError as e:
-        raise click.ClickException(str(e)) from e
+    selected = _select_codes([code_slug] if code_slug else [])
     paths = Paths(Path.cwd())
     checks: list[EditionCheck] = []
     with make_zakon_client(paths.cache) as client:
@@ -174,16 +157,8 @@ def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, ou
     """
     started = time.monotonic()
     paths = Paths(Path.cwd())
-    try:
-        codes = load_codes()
-        selected = [get_code(codes, s) for s in code_slugs] if code_slugs else codes
-    except ConfigError as e:
-        raise click.ClickException(str(e)) from e
-    try:
-        index = build_index(paths.cache)
-    except RadaError as e:
-        click.echo(f"warning: no law index ({e}); messages without law titles", err=True)
-        index = None
+    selected = _select_codes(code_slugs)
+    index = _load_index(paths.cache, "; messages without law titles")
     try:
         with make_zakon_client(paths.cache) as client:
             sources = sources_from_cache(selected, client)
@@ -204,8 +179,9 @@ def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, ou
         write_steps(steps, stream)
         run(stream, out)
         violations = check_repo(out, steps, prints)
-    except (BuildError, GitError, RenderError, RadaError, ValueError, OSError) as e:
-        # ValueError: unusable ref names / messages from bad metadata; OSError: cache files
+    except (JurikError, OSError) as e:
+        # JurikError: missing/broken cache, unusable ref names or messages, git failures;
+        # OSError: the output directory
         raise click.ClickException(str(e)) from e
     took = time.monotonic() - started
     branches = len({s.ref for s in steps if s.kind == "branch"})
@@ -219,21 +195,6 @@ def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, ou
     if violations:
         raise click.ClickException(f"check_repo: {len(violations)} violation(s)")
     click.echo("check_repo: 0 violations")
-
-
-def latest_prints(sources: list[CodeSource], client: ZakonClient) -> dict[str, list[str]]:
-    """Print html of the latest edition of each document of every code still in force."""
-    out: dict[str, list[str]] = {}
-    for src in sources:
-        if src.code.repealed:
-            continue
-        htmls = []
-        for zakon_id in src.code.zakon_ids:
-            if eds := src.editions.get(zakon_id):
-                path = client.edition_path(zakon_id, f"{eds[-1].date:%Y%m%d}")
-                htmls.append(read_gz(path))
-        out[src.code.slug] = htmls
-    return out
 
 
 @main.command()
@@ -251,18 +212,10 @@ def report(code_slugs: tuple[str, ...], repo: Path) -> None:
     listed as not fetched.
     """
     paths = Paths(Path.cwd())
-    try:
-        codes = load_codes()
-        selected = [get_code(codes, s) for s in code_slugs] if code_slugs else codes
-    except ConfigError as e:
-        raise click.ClickException(str(e)) from e
-    try:
-        index = build_index(paths.cache)
-    except RadaError as e:
-        click.echo(f"warning: no law index ({e})", err=True)
-        index = None
+    selected = _select_codes(code_slugs)
+    index = _load_index(paths.cache, "")
     stats = repo_stats(repo)
-    branch_counts = branches_by_code(stats[1], selected) if stats else None
+    branch_counts = branches_by_code(stats.bills, selected) if stats else None
     rows: list[CodeCoverage] = []
     checks: list[EditionCheck] = []
     missing: list[str] = []
@@ -274,18 +227,19 @@ def report(code_slugs: tuple[str, ...], repo: Path) -> None:
                 continue
             click.echo(f"{code.slug}: parsing {len(editions)} edition(s)")
             code_checks = parse_code(code, client, all_editions=True, echo=lambda _: None)
-            checks += [c for c in code_checks if not not_cached(c)]
+            checks += [c for c in code_checks if not c.not_cached]
             branches = branch_counts.get(code.slug) if branch_counts is not None else None
             rows.append(code_coverage(code, editions, code_checks, index, branches))
+        bases = cached_code_bases(selected, client) if index is not None else {}
     open_data: list[str] = []
     if index is not None:
-        open_data = coverage_report(index, selected, cached_code_bases(selected, paths.cache))
+        open_data = coverage_report(index, selected, bases)
     paths.report.mkdir(parents=True, exist_ok=True)
     coverage_path = paths.report / "coverage.md"
     coverage_path.write_text(
         coverage_markdown(
             rows,
-            repo=stats[0] if stats else None,
+            repo=stats,
             repo_path=str(repo),
             open_data=open_data,
             missing=missing,
@@ -298,15 +252,6 @@ def report(code_slugs: tuple[str, ...], repo: Path) -> None:
         f"{coverage_path}: {len(rows)} code(s), {len(checks)} cached edition(s) parsed,"
         f" {failed} failed"
     )
-
-
-def cached_editions(code: Code, client: ZakonClient) -> list[Edition] | None:
-    """In-force editions of every document of ``code`` from cached cards; None if a card
-    is not cached or cannot be parsed."""
-    cards = cached_cards(code, client)
-    if cards is None:
-        return None
-    return [e for card in cards.values() for e in card.current()]
 
 
 @main.command()
@@ -326,7 +271,7 @@ def export(at_date: datetime | None, with_bills: bool, repo: Path, out: Path) ->
     at = at_date.date() if at_date else kyiv_today()
     try:
         res = export_dataset(repo, at, out, with_bills=with_bills)
-    except (ExportError, CheckError) as e:
+    except JurikError as e:
         raise click.ClickException(str(e)) from e
     msg = f"{out}: {res.files} file(s) of {len(res.codes)} code(s) at {res.commit[:10]}"
     msg += f" (In-force {res.in_force})"

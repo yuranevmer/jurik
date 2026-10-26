@@ -5,17 +5,35 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from datetime import date
+from typing import Literal
 
-from jurik.model import Edition, LawMeta, Person
+from jurik.errors import JurikError
+from jurik.model import Edition, LawMeta, LawStatus, Person, law_url
 from jurik.zakon.card import base_kind, display_number
 
-SOURCE_URL = "https://zakon.rada.gov.ua/laws/show/{}"
 MAX_SUBJECT_LAWS = 3
 
 Trailer = tuple[str, str]
+Reason = Literal["initial", "law", "multiple", "court", "unknown", "other", "repealed", "bill"]
+
+# trailer keys (also read back by jurik.build.check, jurik.export, jurik.report)
+LAW = "Law"
+BILL = "Bill"
+BASIS = "Basis"
+ADOPTED = "Adopted"
+SIGNED = "Signed"
+IN_FORCE = "In-force"
+STAGE = "Stage"
+REASON = "Reason"
+EDITION = "Edition"
+SOURCE = "Source"
+REGISTERED = "Registered"
+STATUS = "Status"
+STATUS_DATE = "Status-date"
+CO_AUTHORED_BY = "Co-authored-by"
 
 
-class MessageError(ValueError):
+class MessageError(JurikError):
     """A commit message without the mandatory ``In-force:`` trailer."""
 
 
@@ -26,7 +44,7 @@ def format_message(
 
     Commits of ``main`` must carry ``In-force:``; bill branch commits are exempt.
     """
-    if require_in_force and not any(key == "In-force" and value for key, value in trailers):
+    if require_in_force and not any(key == IN_FORCE and value for key, value in trailers):
         raise MessageError(f"message {subject!r} has no In-force trailer")
     parts = [subject.strip()]
     if body.strip():
@@ -88,39 +106,46 @@ def law_trailers(
     laws = [b for b in bases if base_kind(b) == "law"]
     for nreg in bases:
         if base_kind(nreg) != "law":
-            out.append(("Basis", nreg))
+            out.append((BASIS, nreg))
             continue
         meta = metas.get(nreg)
-        out.append(("Law", law_display(nreg, meta)))
+        out.append((LAW, law_display(nreg, meta)))
         if meta and meta.bill:
-            out.append(("Bill", f"{meta.bill.convocation}/{meta.bill.number}"))
+            out.append((BILL, f"{meta.bill.convocation}/{meta.bill.number}"))
         elif unknown_bill:
-            out.append(("Bill", "unknown"))
+            out.append((BILL, "unknown"))
     if len(laws) == 1 and (meta := metas.get(laws[0])):
         if meta.adopted:
-            out.append(("Adopted", adopted_value(meta)))
+            out.append((ADOPTED, adopted_value(meta)))
         if meta.signed:
-            out.append(("Signed", meta.signed.isoformat()))
+            out.append((SIGNED, meta.signed.isoformat()))
     return out
 
 
 def edition_id(e: Edition) -> str:
     """Value of the ``Edition:`` trailer: ``<zakon_id>/edYYYYMMDD``."""
-    return f"{e.zakon_id}/ed{e.date:%Y%m%d}"
+    return f"{e.zakon_id}/ed{e.stamp}"
+
+
+def parse_edition_id(value: str) -> tuple[str, str] | None:
+    """``254к/96-ВР/ed19960628`` → ``("254к/96-ВР", "19960628")`` (inverse of
+    :func:`edition_id`); None if ``value`` is not an edition id."""
+    zakon_id, sep, stamp = value.rpartition("/ed")
+    return (zakon_id, stamp) if sep and zakon_id else None
 
 
 def edition_trailers(editions: Sequence[Edition]) -> list[Trailer]:
-    return [("Edition", edition_id(e)) for e in editions]
+    return [(EDITION, edition_id(e)) for e in editions]
 
 
 def source_trailers(bases: Sequence[str], editions: Sequence[Edition]) -> list[Trailer]:
     if bases:
-        return [("Source", SOURCE_URL.format(b)) for b in bases]
-    return [("Source", e.url) for e in editions]
+        return [(SOURCE, law_url(b)) for b in bases]
+    return [(SOURCE, e.url) for e in editions]
 
 
 def subject_for(
-    reason: str,
+    reason: Reason,
     bases: Sequence[str],
     titles: Sequence[str],
     metas: dict[str, LawMeta | None],
@@ -167,7 +192,7 @@ def body_for(bases: Sequence[str], metas: dict[str, LawMeta | None]) -> str:
 
 def step_message(
     *,
-    reason: str,
+    reason: Reason,
     in_force: date,
     bases: Sequence[str],
     titles: Sequence[str],
@@ -178,10 +203,10 @@ def step_message(
 ) -> str:
     """Message of a commit of ``main``; ``stage`` (merge of a bill branch) adds ``Stage:``."""
     trailers = law_trailers(bases, metas, unknown_bill=unknown_bill)
-    trailers.append(("In-force", in_force.isoformat()))
+    trailers.append((IN_FORCE, in_force.isoformat()))
     if stage is not None:
-        trailers.append(("Stage", str(stage)))
-    trailers.append(("Reason", reason))
+        trailers.append((STAGE, str(stage)))
+    trailers.append((REASON, reason))
     trailers += edition_trailers(editions)
     trailers += source_trailers(bases, editions)
     return format_message(
@@ -214,19 +239,19 @@ def branch_message(
     title = law_title(meta)
     subject += f": {title}" if title else f" ({', '.join(titles)})"
     trailers = law_trailers(bases, metas, unknown_bill=True)
-    trailers = [t for t in trailers if t[0] not in ("Adopted", "Signed")]
+    trailers = [t for t in trailers if t[0] not in (ADOPTED, SIGNED)]
     if meta and meta.registered:
-        trailers.append(("Registered", meta.registered.isoformat()))
-    trailers.append(("Stage", str(stage)))
+        trailers.append((REGISTERED, meta.registered.isoformat()))
+    trailers.append((STAGE, str(stage)))
     trailers += [
-        ("Co-authored-by", f"{p.name} <{person_email(p)}>")
+        (CO_AUTHORED_BY, f"{p.name} <{person_email(p)}>")
         for p in (meta.initiators[1:] if meta else [])
         if p.slug
     ]
     return format_message(subject, trailers, body_for(bases, metas), require_in_force=False)
 
 
-STATUS_LABELS = {
+STATUS_LABELS: dict[LawStatus, str] = {
     "rejected": "відхилено",
     "withdrawn": "відкликано",
     "removed": "знято з розгляду",
@@ -235,7 +260,7 @@ STATUS_LABELS = {
 }
 
 
-def status_label(status: str) -> str:
+def status_label(status: LawStatus) -> str:
     return STATUS_LABELS.get(status, status)
 
 
@@ -252,15 +277,15 @@ def rejected_bill_message(*, meta: LawMeta, titles: Sequence[str]) -> str:
     label = status_label(meta.status)
     body = f"Статус: {label}" + (f", {meta.phase_date.isoformat()}" if meta.phase_date else "")
     body += f".\nСтосується: {', '.join(titles)}." if titles else "."
-    trailers: list[Trailer] = [("Bill", f"{meta.bill.convocation}/{meta.bill.number}")]
+    trailers: list[Trailer] = [(BILL, f"{meta.bill.convocation}/{meta.bill.number}")]
     if meta.registered:
-        trailers.append(("Registered", meta.registered.isoformat()))
-    trailers.append(("Status", meta.status))
+        trailers.append((REGISTERED, meta.registered.isoformat()))
+    trailers.append((STATUS, meta.status))
     if meta.phase_date:
-        trailers.append(("Status-date", meta.phase_date.isoformat()))
+        trailers.append((STATUS_DATE, meta.phase_date.isoformat()))
     if meta.card_url:
-        trailers.append(("Source", meta.card_url))
+        trailers.append((SOURCE, meta.card_url))
     trailers += [
-        ("Co-authored-by", f"{p.name} <{person_email(p)}>") for p in meta.initiators[1:] if p.slug
+        (CO_AUTHORED_BY, f"{p.name} <{person_email(p)}>") for p in meta.initiators[1:] if p.slug
     ]
     return format_message(subject, trailers, body, require_in_force=False)

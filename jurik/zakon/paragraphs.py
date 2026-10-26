@@ -25,10 +25,12 @@ from __future__ import annotations
 
 import re
 import warnings
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Literal
 
 from lxml import html as lxml_html
+from lxml.html import HtmlElement
 
 from jurik.model import UnitKind
 
@@ -91,7 +93,8 @@ def normalize_text(text: str) -> str:
     return _SUP_BEFORE_WORD.sub(_join_sup_before_word, text)
 
 
-def _norm_index(number: str) -> str:
+def norm_index(number: str) -> str:
+    """``39 - 1`` → ``39-1``: an article/level index without spaces around dashes."""
     return re.sub(r"\s*-\s*", "-", number.strip())
 
 
@@ -129,7 +132,8 @@ _CHAPTER = re.compile(
 _PARAGRAPH = re.compile(rf"^§\s*({_INDEX}){_TAIL}", re.S)
 # "{…}", also "/- {Зміни …, прийняті Законом …}" (pending amendment marker)
 _NOTE_START = re.compile(r"^[/\-\s]*\{")
-_NOTE_RE = re.compile(r"\{[^{}]*\}")
+# inline editorial note: "{Статтю 196 виключено …}" (shared with the tree and the verifier)
+NOTE = re.compile(r"\{[^{}]*\}")
 # unnumbered top-level heading: «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ», «ПЕРЕХІДНІ ПОЛОЖЕННЯ»
 _FINAL = re.compile(
     r"^(?:ПРИКІНЦЕВІ|ПЕРЕХІДНІ)(?:\s+(?:ТА|І|Й)\s+(?:ПРИКІНЦЕВІ|ПЕРЕХІДНІ))?\s+ПОЛОЖЕННЯ\.?$"
@@ -137,13 +141,14 @@ _FINAL = re.compile(
 # КУпАП розділ II: «I. ЗАГАЛЬНА ЧАСТИНА», «II. ОСОБЛИВА ЧАСТИНА» group chapters inside the
 # section, so they are a level of subsection rank (a ``part`` would swallow later sections)
 _SECTION_PART = re.compile(r"^(I|II)\.\s+((?:ЗАГАЛЬНА|ОСОБЛИВА)\s+ЧАСТИНА)$")
-_EXCLUDED_TITLE = re.compile(r"^(виключен[аоий]|виключено)\.?$", re.I)
+# a level or article title that is only «Виключена.» / «виключено»
+EXCLUDED_WORD = re.compile(r"^(виключен[аоий]|виключено)\.?$", re.I)
 # unlabelled sub-heading inside a § right before an article: «2. Повне товариство»
 _GROUP = re.compile(r"^(\d+)\.\s+([А-ЯІЇЄҐ][^.;:,!?]{0,100})$")
 
 
 def _is_upper(text: str) -> bool:
-    text = _NOTE_RE.sub("", text)
+    text = NOTE.sub("", text)
     return any(c.isalpha() for c in text) and text == text.upper()
 
 
@@ -163,7 +168,7 @@ def is_excluded_heading(text: str) -> bool:
         if (m := rx.match(text)) and (title := (m.group(3) or "").strip()):
             return (
                 title.startswith("{")
-                and not _NOTE_RE.sub("", title).strip()
+                and not NOTE.sub("", title).strip()
                 and bool(re.search(r"виключ|втрати", title, re.I))
             )
     return False
@@ -173,7 +178,7 @@ def _title_ok(kind: UnitKind, dot: str, title: str) -> bool:
     """Heading title guard that keeps body sentences like «Розділ V "…" зберігає …» out."""
     if not title:
         return True
-    if _is_upper(title) or _EXCLUDED_TITLE.match(title):
+    if _is_upper(title) or EXCLUDED_WORD.match(title):
         return True
     # "Підрозділ 1. Особливості …", "§ 1. Господарські товариства"; ЦК also has a dotless
     # "§ 2 Правові наслідки недодержання …" (a body sentence never starts with "§ N")
@@ -206,7 +211,7 @@ def match_heading(text: str) -> tuple[UnitKind, str, str] | None:
             title = (m.group(3) or "").strip()
             if not _title_ok(kind, m.group(2), title):
                 return None
-            number = _norm_index(m.group(1))
+            number = norm_index(m.group(1))
             if kind in ("section", "chapter") and not number[0].isdigit():
                 head, sep, idx = number.partition("-")
                 number = head.upper().translate(_CYRILLIC_ROMAN) + sep + idx.upper()
@@ -217,7 +222,7 @@ def match_heading(text: str) -> tuple[UnitKind, str, str] | None:
 def match_article(text: str) -> tuple[str, str] | None:
     """Return ``(number, rest)`` if ``text`` starts an article."""
     if m := _ARTICLE.match(text):
-        return _norm_index(m.group(1)), m.group(2).strip()
+        return norm_index(m.group(1)), m.group(2).strip()
     return None
 
 
@@ -238,7 +243,7 @@ _SUP_LINK = re.compile(r"^ +- +(\d+)")
 _DOTTED_BASE = re.compile(r"\d\.(\d+)$")
 
 
-def _text_chunks(el):
+def _text_chunks(el: HtmlElement) -> Iterator[tuple[HtmlElement, str]]:
     """``(node, attr)`` for every text chunk of ``el`` in document order."""
     if isinstance(el.tag, str):  # comments / processing instructions carry no text
         yield el, "text"
@@ -247,7 +252,7 @@ def _text_chunks(el):
     yield el, "tail"
 
 
-def _join_split_superscripts(el) -> None:
+def _join_split_superscripts(el: HtmlElement) -> None:
     """Glue a superscript index that the source put into its own element to its base:
     «<a>статтями 166</a><a> - 10</a>» -> «статтями 166-10». A range is one text chunk
     («<a>статтями 73 - 76</a>»), so it is not touched; a dash right after a glued index is
@@ -275,14 +280,14 @@ def _join_split_superscripts(el) -> None:
         prev = text
 
 
-def _element_text(el) -> str:
+def _element_text(el: HtmlElement) -> str:
     for br in el.iter("br"):
         br.tail = " " + (br.tail or "")
     _join_split_superscripts(el)
     return normalize_text(el.text_content())
 
 
-def _anchor(el) -> str:
+def _anchor(el: HtmlElement) -> str:
     for a in el.iter("a"):
         name = a.get("name")
         if name:
@@ -290,11 +295,11 @@ def _anchor(el) -> str:
     return ""
 
 
-def _cell_text(cell) -> str:
+def _cell_text(cell: HtmlElement) -> str:
     return _element_text(cell).replace("|", r"\|")
 
 
-def table_to_text(table) -> list[str]:
+def table_to_text(table: HtmlElement) -> list[str]:
     """Convert a table to text blocks.
 
     Single-column tables (title boxes, signatures) yield one block per non-empty cell.
@@ -325,7 +330,7 @@ def table_to_text(table) -> list[str]:
     return ["\n".join(" | ".join(r) for r in rows)]
 
 
-def _blocks(container) -> list[_Block]:
+def _blocks(container: HtmlElement) -> list[_Block]:
     out: list[_Block] = []
     for el in container:
         if not isinstance(el.tag, str):
@@ -348,7 +353,7 @@ def _blocks(container) -> list[_Block]:
 # --- classification ---------------------------------------------------------------
 
 
-def _doc_title(doc) -> str:
+def _doc_title(doc: HtmlElement) -> str:
     for xp in ("//h1", "//title"):
         found = doc.xpath(xp)
         if found:
@@ -404,7 +409,7 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
             # a note may span several paragraphs ("{У тексті Кодексу:" / "слова …;" / "…}");
             # some notes in the source lack the closing brace, so only a list-like
             # paragraph (ending with ":" or ";") keeps an unclosed note open
-            note_depth = max(note_depth + text.count("{") - text.count("}"), 0)
+            note_depth = max(note_depth + _open_braces(text), 0)
             note_open = note_depth > 0 and text.endswith((":", ";"))
             if not note_open:
                 note_depth = 0
@@ -429,43 +434,13 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
             continue
         if head := match_heading(text):
             seen_structure = True
-            unit_kind, number, htitle = head
-            level = unit_kind
-            if unit_kind in ("section", "chapter"):  # the heading text carries Latin numerals
-                text = _SECTION_NUMERAL.sub(lambda m: m[1] + m[2].translate(_CYRILLIC_ROMAN), text)
-            if not htitle and i < len(blocks):
-                nxt = blocks[i]
-                if (
-                    not nxt.is_table
-                    and not _NOTE_START.match(nxt.text)
-                    and _is_upper(nxt.text)
-                    and (not match_heading(nxt.text) or _FINAL.match(nxt.text))
-                    and not match_article(nxt.text)
-                ):
-                    htitle = nxt.text
-                    text = f"{text} {htitle}"
-                    i += 1
-            paras.append(
-                Para(text, "heading", b.anchor, unit_kind=unit_kind, number=number, title=htitle)
-            )
+            level = head[0]
+            para, i = _heading_para(b, head, blocks, i)
+            paras.append(para)
             continue
-        if (
-            level in ("paragraph", "group")
-            and (m := _GROUP.match(text))
-            and match_article(_next_text(blocks, i))
-        ):
-            # ЦК § 1 «Господарські товариства»: «1. Загальні положення», «2. Повне товариство» …
+        if level in ("paragraph", "group") and (group := _group_para(b, blocks, i)):
             level = "group"
-            paras.append(
-                Para(
-                    text,
-                    "heading",
-                    b.anchor,
-                    unit_kind="group",
-                    number=m.group(1),
-                    title=m.group(2).strip(),
-                )
-            )
+            paras.append(group)
             continue
         kind = "header" if not seen_structure and _is_header_text(text, title) else "body"
         paras.append(Para(text, kind, b.anchor))
@@ -473,6 +448,43 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
     if not paras:
         warnings.warn("document text has no paragraphs", ParagraphWarning, stacklevel=2)
     return _join_split_notes(paras)
+
+
+def _heading_para(
+    b: _Block, head: tuple[UnitKind, str, str], blocks: list[_Block], i: int
+) -> tuple[Para, int]:
+    """The heading paragraph of block ``b`` (``blocks[i]`` is the next one) and the index of
+    the block after it: an untitled heading takes an upper-case next line as its title
+    («РОЗДІЛ I» + «ЗАГАЛЬНІ ПОЛОЖЕННЯ»)."""
+    unit_kind, number, htitle = head
+    text = b.text
+    if unit_kind in ("section", "chapter"):  # the heading text carries Latin numerals
+        text = _SECTION_NUMERAL.sub(lambda m: m[1] + m[2].translate(_CYRILLIC_ROMAN), text)
+    if not htitle and i < len(blocks):
+        nxt = blocks[i]
+        if (
+            not nxt.is_table
+            and not _NOTE_START.match(nxt.text)
+            and _is_upper(nxt.text)
+            and (not match_heading(nxt.text) or _FINAL.match(nxt.text))
+            and not match_article(nxt.text)
+        ):
+            htitle = nxt.text
+            text = f"{text} {htitle}"
+            i += 1
+    para = Para(text, "heading", b.anchor, unit_kind=unit_kind, number=number, title=htitle)
+    return para, i
+
+
+def _group_para(b: _Block, blocks: list[_Block], i: int) -> Para | None:
+    """An unlabelled numbered sub-heading right before an article, if ``b`` is one (ЦК § 1
+    «Господарські товариства»: «1. Загальні положення», «2. Повне товариство» …)."""
+    m = _GROUP.match(b.text)
+    if not m or not match_article(_next_text(blocks, i)):
+        return None
+    return Para(
+        b.text, "heading", b.anchor, unit_kind="group", number=m.group(1), title=m.group(2).strip()
+    )
 
 
 def _open_braces(text: str) -> int:

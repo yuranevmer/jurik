@@ -1,3 +1,5 @@
+import gzip
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -23,9 +25,6 @@ def write_registry(tmp_path):
 @pytest.fixture
 def rada_cache(tmp_path):
     """Copy tests/fixtures/rada/ into a cache dir laid out like RadaClient writes it."""
-    import gzip
-    import zipfile
-
     root = tmp_path / "cache"
     for src in (FIXTURES / "rada").rglob("*"):
         if not src.is_file() or not src.parent.name.startswith("skl"):

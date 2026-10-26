@@ -25,9 +25,18 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
+import docx
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+from lxml import html as lxml_html
+from pypdf import PdfReader
+from striprtf.striprtf import rtf_to_text
+
+from jurik.http import write_atomic
 from jurik.model import BillRef
-from jurik.rada.client import BILLINFO, RadaClient, RadaError, cache_name
+from jurik.rada.client import BILLINFO, RadaClient, RadaError, cached_file
 from jurik.rada.index import norm_bill_number, parse_day, read_billinfo, read_csv
 
 IX_DOWNLOAD_URL = "https://itd.rada.gov.ua/billinfo/api/file/download/"
@@ -35,8 +44,11 @@ TEXT_TYPE_RE = re.compile(
     r"^про[еє]кт\s+(закону|кодексу)(\s*\((на\s+заміну|доопрацьований)\))?$", re.IGNORECASE
 )
 MAX_CHUNKS = 200
+# seconds between bill document downloads: one small request per bill (several per IX
+# chunked file), so a gentler pace than the 2.5 s of the bulk open data files
+BILL_TEXT_INTERVAL = 1.0
 
-Format = str  # "pdf" | "docx" | "rtf" | "doc" | "html" | "txt"
+Format = Literal["pdf", "docx", "rtf", "doc", "html", "txt"]
 
 
 @dataclass(frozen=True)
@@ -60,11 +72,7 @@ def _latest(docs: Iterable[tuple[date | None, int, BillDoc]]) -> BillDoc | None:
 
 def csv_documents(cache: Path, n: int) -> dict[str, BillDoc]:
     """III–VIII: normalized bill number → its latest text document."""
-    base = Path(cache) / "rada" / f"skl{n}"
-    paths = [base / cache_name(f"bills_{k}-skl{n}.csv") for k in ("main", "documents")]
-    for p in paths:
-        if not p.is_file():
-            raise RadaError(f"{p}: not cached, run `jurik rada --convocation {n}` first")
+    paths = [cached_file(cache, n, f"bills_{k}-skl{n}.csv") for k in ("main", "documents")]
     numbers = {r["bill_id"]: r["number"] for r in read_csv(paths[0], ("bill_id", "number"))}
     found: dict[str, list[tuple[date | None, int, BillDoc]]] = {}
     rows = read_csv(paths[1], ("bill_id", "type", "document_date", "document_type", "document_url"))
@@ -177,10 +185,6 @@ def paragraphs_from_lines(lines: Iterable[str], *, indent_breaks: bool = False) 
 
 def docx_to_markdown(data: bytes) -> str:
     """Paragraphs (headings as ``#``) and tables (``| a | b |`` rows) in document order."""
-    import docx
-    from docx.table import Table
-    from docx.text.paragraph import Paragraph
-
     document = docx.Document(io.BytesIO(data))
     blocks: list[str] = []
     for item in document.iter_inner_content():
@@ -203,8 +207,6 @@ def docx_to_markdown(data: bytes) -> str:
 
 
 def pdf_to_markdown(data: bytes) -> str:
-    from pypdf import PdfReader
-
     reader = PdfReader(io.BytesIO(data))
     lines: list[str] = []
     for page in reader.pages:
@@ -214,8 +216,6 @@ def pdf_to_markdown(data: bytes) -> str:
 
 
 def rtf_to_markdown(data: bytes) -> str:
-    from striprtf.striprtf import rtf_to_text
-
     m = re.search(rb"\\ansicpg(\d+)", data[:4096])
     encoding = f"cp{m.group(1).decode()}" if m else "cp1251"
     try:
@@ -237,8 +237,6 @@ _BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li"}
 
 def html_to_markdown(data: bytes) -> str:
     """``<pre>`` texts are reflowed by indentation; otherwise one paragraph per block tag."""
-    from lxml import html as lxml_html
-
     m = re.search(rb"charset=[\"']?([\w-]+)", data[:4096], re.IGNORECASE)
     try:
         text = data.decode(m.group(1).decode()) if m else _decode(data)
@@ -275,7 +273,7 @@ CONVERTERS: dict[Format, Callable[[bytes], str]] = {
 def to_markdown(data: bytes) -> str | None:
     """Markdown text of a downloaded document; ``None`` for ``.doc``, unknown or empty."""
     fmt = detect(data)
-    convert = CONVERTERS.get(fmt or "")
+    convert = CONVERTERS.get(fmt) if fmt else None
     if convert is None:
         return None
     try:
@@ -324,7 +322,7 @@ class BillTexts:
 
     def _http(self) -> RadaClient:
         if self._client is None:
-            self._client = RadaClient(self.cache, min_interval=1.0)
+            self._client = RadaClient(self.cache, min_interval=BILL_TEXT_INTERVAL)
         return self._client
 
     def close(self) -> None:
@@ -341,9 +339,7 @@ class BillTexts:
         n = bill.convocation
         if n not in self._docs:
             if n == 9:
-                path = self.cache / "rada" / "skl9" / cache_name(BILLINFO)
-                if not path.is_file():
-                    raise RadaError(f"{path}: not cached, run `jurik rada --convocation 9`")
+                path = cached_file(self.cache, 9, BILLINFO)
                 self._docs[n] = billinfo_documents(read_billinfo(path))
             else:
                 self._docs[n] = csv_documents(self.cache, n)
@@ -404,10 +400,7 @@ class BillTexts:
                 self._echo(f"warning: bill {bill.convocation}/{bill.number}: empty document")
                 return None
             path = self.dir / str(bill.convocation) / f"{file_stem(bill.number)}.{fmt}"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_name(path.name + ".tmp")
-            tmp.write_bytes(data)
-            tmp.replace(path)
+            write_atomic(path, data)
         text = to_markdown(path.read_bytes())
         if text is None:
             self._echo(f"note: bill {bill.convocation}/{bill.number}: no text from {path.name}")

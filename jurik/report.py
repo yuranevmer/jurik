@@ -12,7 +12,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from jurik.build.check import CheckError, git, main_log
+from jurik.build.repo import RepoError, git, main_log
 from jurik.config import Code
 from jurik.export import BillBranch, unmerged_bills
 from jurik.model import Edition
@@ -43,7 +43,11 @@ class CodeCoverage:
 class RepoStats:
     main_commits: int  # --first-parent main
     bill_branches: int  # refs/heads/bill/*
-    unmerged: int  # bill branches never merged (bills that did not become law)
+    bills: list[BillBranch]  # bill branches never merged (bills that did not become law)
+
+    @property
+    def unmerged(self) -> int:
+        return len(self.bills)
 
 
 def code_coverage(
@@ -55,7 +59,7 @@ def code_coverage(
 ) -> CodeCoverage:
     """Coverage of one code; ``index=None`` (no open data) leaves its columns empty."""
     checks = [c for c in checks if c.edition != "card"]
-    cached = len(editions) - sum(not_cached(c) for c in checks)
+    cached = len(editions) - sum(c.not_cached for c in checks)
     parsed = sum(c.ok for c in checks)
     laws = list(dict.fromkeys(b for ed in editions for b in ed.bases if base_kind(b) == "law"))
     with_bill = with_votes = without_meta = by_title = None
@@ -70,23 +74,18 @@ def code_coverage(
             m.status != "adopted" and m.bill is not None for m in bills_for_code(index, code)
         )
     return CodeCoverage(
-        code.slug,
-        code.title,
-        len(editions),
-        cached,
-        parsed,
-        with_bill,
-        with_votes,
-        len(laws),
-        without_meta,
-        branches,
-        by_title,
+        slug=code.slug,
+        title=code.title,
+        editions=len(editions),
+        cached=cached,
+        parsed=parsed,
+        with_bill=with_bill,
+        with_votes=with_votes,
+        laws=len(laws),
+        laws_without_meta=without_meta,
+        branches=branches,
+        bills_by_title=by_title,
     )
-
-
-def not_cached(check: EditionCheck) -> bool:
-    """The edition was not parsed because its print is not downloaded yet."""
-    return check.error.startswith("FileNotFoundError")
 
 
 def branches_by_code(bills: Iterable[BillBranch], codes: Iterable[Code]) -> dict[str, int]:
@@ -102,7 +101,7 @@ def branches_by_code(bills: Iterable[BillBranch], codes: Iterable[Code]) -> dict
     return out
 
 
-def repo_stats(repo: Path) -> tuple[RepoStats, list[BillBranch]] | None:
+def repo_stats(repo: Path) -> RepoStats | None:
     """Commit and branch counts of a built repository; None if it is not one."""
     if not (repo / ".git").exists():
         return None
@@ -110,16 +109,17 @@ def repo_stats(repo: Path) -> tuple[RepoStats, list[BillBranch]] | None:
         commits = main_log(repo)
         refs = git(repo, "for-each-ref", "--format=%(refname)", "refs/heads/bill/").split()
         bills = unmerged_bills(repo)
-    except CheckError:
+    except RepoError:
         return None
-    return RepoStats(len(commits), len(refs), len(bills)), bills
+    return RepoStats(main_commits=len(commits), bill_branches=len(refs), bills=bills)
 
 
 def _n(value: int | None) -> str:
     return "—" if value is None else str(value)
 
 
-def _pct(part: int | None, whole: int) -> str:
+def _share(part: int | None, whole: int) -> str:
+    """``9 (90%)`` of a table cell; ``—`` when unknown."""
     if part is None:
         return "—"
     return f"{part} ({100 * part / whole:.0f}%)" if whole else str(part)
@@ -147,18 +147,18 @@ def coverage_markdown(
 
     for r in rows:
         lines.append(
-            f"| {r.slug} | {r.editions} | {_pct(r.cached, r.editions)}"
-            f" | {_pct(r.parsed, r.editions)}"
-            f" | {_pct(r.with_bill, r.editions)} | {_pct(r.with_votes, r.editions)}"
-            f" | {r.laws} | {_pct(r.laws_without_meta, r.laws)} | {_n(r.branches)}"
+            f"| {r.slug} | {r.editions} | {_share(r.cached, r.editions)}"
+            f" | {_share(r.parsed, r.editions)}"
+            f" | {_share(r.with_bill, r.editions)} | {_share(r.with_votes, r.editions)}"
+            f" | {r.laws} | {_share(r.laws_without_meta, r.laws)} | {_n(r.branches)}"
             f" | {_n(r.bills_by_title)} |"
         )
     if rows:
         eds, laws = total("editions") or 0, total("laws") or 0
         lines.append(
-            f"| **total** | {eds} | {_pct(total('cached'), eds)} | {_pct(total('parsed'), eds)}"
-            f" | {_pct(total('with_bill'), eds)} | {_pct(total('with_votes'), eds)}"
-            f" | {laws} | {_pct(total('laws_without_meta'), laws)} | {_n(total('branches'))}"
+            f"| **total** | {eds} | {_share(total('cached'), eds)} | {_share(total('parsed'), eds)}"
+            f" | {_share(total('with_bill'), eds)} | {_share(total('with_votes'), eds)}"
+            f" | {laws} | {_share(total('laws_without_meta'), laws)} | {_n(total('branches'))}"
             f" | {_n(total('bills_by_title'))} |"
         )
     lines += [

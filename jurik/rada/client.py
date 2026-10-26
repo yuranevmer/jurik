@@ -25,24 +25,29 @@ from pathlib import Path
 
 import httpx
 
-from jurik.http import ThrottledHttp, write_atomic
+from jurik.convocation import FIRST, LAST
+from jurik.errors import JurikError
+from jurik.http import BASE_URL, OpenDataClient, write_atomic
 
-BASE_URL = "https://data.rada.gov.ua"
-USER_AGENT = "OpenData"
-CONVOCATIONS = range(3, 10)
+CONVOCATIONS = range(FIRST, LAST + 1)
 CSV_BILLS = ("main", "acts", "initiators", "passings", "documents")
 CSV_PLENARY = ("agenda", "event_question", "result_event")
 BILLINFO = "billinfo-skl9.zip"
 
 
-class RadaError(RuntimeError):
+class RadaError(JurikError):
     """Download failed, returned an error page, or a cached file is unreadable."""
+
+
+def check_convocation(n: int) -> None:
+    """``RadaError`` unless ``n`` is a convocation with open data (III–IX)."""
+    if n not in CONVOCATIONS:
+        raise RadaError(f"convocation {n} is outside III–IX (3..9)")
 
 
 def convocation_files(n: int) -> list[tuple[str, str]]:
     """``(file name, url)`` of every file needed for convocation ``n``."""
-    if n not in CONVOCATIONS:
-        raise RadaError(f"convocation {n} is outside III–IX (3..9)")
+    check_convocation(n)
     files: list[tuple[str, str]] = []
     if n == 9:
         files.append((BILLINFO, f"{BASE_URL}/ogd/zpr/skl9/{BILLINFO}"))
@@ -58,6 +63,19 @@ def convocation_files(n: int) -> list[tuple[str, str]]:
 
 def cache_name(name: str) -> str:
     return name if name.endswith(".zip") else name + ".gz"
+
+
+def cache_path(cache: Path, n: int, name: str) -> Path:
+    """Where open data file ``name`` of convocation ``n`` is cached under ``cache``."""
+    return Path(cache) / "rada" / f"skl{n}" / cache_name(name)
+
+
+def cached_file(cache: Path, n: int, name: str) -> Path:
+    """``cache_path`` of a file that must already be downloaded; ``RadaError`` if not."""
+    path = cache_path(cache, n, name)
+    if not path.is_file():
+        raise RadaError(f"{path}: not cached, run `jurik rada --convocation {n}` first")
+    return path
 
 
 def check_payload(name: str, data: bytes, url: str) -> None:
@@ -82,7 +100,7 @@ def check_payload(name: str, data: bytes, url: str) -> None:
         raise RadaError(f"{url}: first line is not a CSV header")
 
 
-class RadaClient:
+class RadaClient(OpenDataClient):
     def __init__(
         self,
         cache_dir: Path,
@@ -96,10 +114,9 @@ class RadaClient:
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self.cache_dir = Path(cache_dir) / "rada"
-        self.refetch = refetch
-        self._http = ThrottledHttp(
-            user_agent=USER_AGENT,
+        super().__init__(
+            Path(cache_dir) / "rada",
+            refetch=refetch,
             error=RadaError,
             min_interval=min_interval,
             retries=retries,
@@ -109,18 +126,10 @@ class RadaClient:
             sleep=sleep,
             clock=clock,
         )
-
-    def close(self) -> None:
-        self._http.close()
-
-    def __enter__(self) -> RadaClient:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self.close()
+        self._cache = Path(cache_dir)
 
     def path(self, n: int, name: str) -> Path:
-        return self.cache_dir / f"skl{n}" / cache_name(name)
+        return cache_path(self._cache, n, name)
 
     def fetch_convocation(self, n: int, *, echo: Callable[[str], None] | None = None) -> list[Path]:
         """Download all files of convocation ``n`` into the cache; return cached paths."""

@@ -6,8 +6,10 @@ import subprocess
 from pathlib import Path
 from typing import BinaryIO
 
+from jurik.errors import JurikError
 
-class GitError(RuntimeError):
+
+class GitError(JurikError):
     """A ``git`` command failed."""
 
 

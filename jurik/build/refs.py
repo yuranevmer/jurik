@@ -1,16 +1,22 @@
-"""Branch names of bills: ``bill/<convocation>/<number>`` and ``bill/law/<nreg>``."""
+"""Branch names: ``main`` and the bills' ``bill/<convocation>/<number>``, ``bill/law/<nreg>``."""
 
 from __future__ import annotations
 
 import re
 
+from jurik.errors import JurikError
 from jurik.model import BillRef
 from jurik.translit import transliterate
 
+MAIN = "main"
 BILL_PREFIX = "bill"
 
 # characters git forbids in a ref component (see git-check-ref-format)
 _FORBIDDEN = re.compile(r"[\x00-\x20\x7f~^:?*\[\\]+")
+
+
+class RefError(JurikError):
+    """No usable git ref name can be made from a bill or law number."""
 
 
 def ref_safe(s: str) -> str:
@@ -24,7 +30,7 @@ def ref_safe(s: str) -> str:
         out = out[: -len(".lock")]
     out = out.strip(".-")
     if not out or out == "@":
-        raise ValueError(f"cannot make a ref name from {s!r}")
+        raise RefError(f"cannot make a ref name from {s!r}")
     return out
 
 

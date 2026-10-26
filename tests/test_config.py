@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from jurik.config import DEFAULT_REGISTRY, ConfigError, Paths, get_code, load_codes
@@ -80,8 +82,6 @@ def test_bad_title_pattern_rejected(write_registry):
 
 
 def test_repealed_fields(write_registry):
-    from datetime import date
-
     path = write_registry(
         '- slug: commercial\n  zakon_id: "436-15"\n  title: Господарський кодекс України\n'
         "  repealed: 2025-08-28\n  repealed_by: 4196-20\n"

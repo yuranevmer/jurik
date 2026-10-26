@@ -8,9 +8,13 @@ from jurik.rada.client import (
     BILLINFO,
     RadaClient,
     RadaError,
+    cache_path,
+    cached_file,
+    check_convocation,
     check_payload,
     convocation_files,
     read_cached,
+    write_cached,
 )
 
 CSV = b"bill_id,act_number\n1,229-IX\n"
@@ -170,3 +174,16 @@ def test_read_cached_corrupt_gzip(tmp_path):
     bad.write_bytes(b"not gzip")
     with pytest.raises(RadaError, match="x.csv.gz"):
         read_cached(bad)
+
+
+def test_cached_file_and_convocation_range(tmp_path):
+    with pytest.raises(RadaError, match=r"not cached, run `jurik rada --convocation 5` first"):
+        cached_file(tmp_path, 5, "bills_main-skl5.csv")
+    path = cache_path(tmp_path, 5, "bills_main-skl5.csv")
+    assert path == tmp_path / "rada" / "skl5" / "bills_main-skl5.csv.gz"
+    write_cached(path, CSV)
+    assert cached_file(tmp_path, 5, "bills_main-skl5.csv") == path
+    assert RadaClient(tmp_path).path(5, "bills_main-skl5.csv") == path
+    check_convocation(9)
+    with pytest.raises(RadaError, match="outside III–IX"):
+        check_convocation(10)

@@ -275,5 +275,5 @@ def test_same_file_from_two_documents_is_an_error():
 def test_bad_numbers_raise_render_error():
     with pytest.raises(RenderError):
         article_file("I")
-    with pytest.raises(ValueError):
+    with pytest.raises(RenderError, match="bad number 'Q'"):
         unit_dir(Unit("section", "Q", "x"))

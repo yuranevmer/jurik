@@ -18,6 +18,7 @@ from pathlib import Path
 
 from jurik.build.changeset import ChangeSet
 from jurik.build.gitcmd import GitError, run_git
+from jurik.build.refs import MAIN
 from jurik.model import KYIV
 
 COMMIT_HOUR = 12
@@ -161,7 +162,7 @@ def prepare_repo(repo_path: Path) -> None:
             )
         shutil.rmtree(repo_path)
     repo_path.mkdir(parents=True)
-    run_git(repo_path, "init", "-q", "-b", "main", error=FastImportError)
+    run_git(repo_path, "init", "-q", "-b", MAIN, error=FastImportError)
     run_git(repo_path, "config", MARKER_KEY, "true", error=FastImportError)
 
 
@@ -172,5 +173,5 @@ def run(stream: Stream, repo_path: Path) -> None:
     out.flush()
     out.seek(0)
     run_git(repo_path, "fast-import", "--quiet", stdin=out, error=FastImportError)
-    if run_git(repo_path, "for-each-ref", "refs/heads/main", error=FastImportError).strip():
-        run_git(repo_path, "reset", "-q", "--hard", "main", error=FastImportError)
+    if run_git(repo_path, "for-each-ref", f"refs/heads/{MAIN}", error=FastImportError).strip():
+        run_git(repo_path, "reset", "-q", "--hard", MAIN, error=FastImportError)

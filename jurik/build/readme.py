@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from jurik.build.history import MAIN, Step
+from jurik.build.history import Step
+from jurik.build.refs import MAIN
 from jurik.config import Code
+from jurik.model import law_url
 
 README_PATH = "README.md"
-ZAKON_URL = "https://zakon.rada.gov.ua/laws/show/{}"
 
 _INTRO = """\
 # Конституція та кодекси України з історією змін
@@ -128,7 +129,7 @@ _HISTORY = """\
 | `In-force:` | `main` | дата набрання чинності редакції (вісь часу) |
 | `Stage:` | `main`, гілки | етап набрання чинності того самого закону |
 | `Reason:` | `main` | `initial`, `law`, `multiple`, `court`, `unknown`, `other`, `repealed` |
-| `Basis:` | `main` | підстава, що не є законом (рішення КСУ тощо) |
+| `Basis:` | `main`, гілки | підстава, що не є законом (рішення КСУ тощо) |
 | `Edition:` | `main` | редакція zakon: `<zakon_id>/edYYYYMMDD` |
 | `Source:` | `main`, гілки | посилання на закон або картку законопроекту |
 | `Registered:` | гілки | дата реєстрації законопроекту |
@@ -167,7 +168,7 @@ _LIMITS = """\
 def _codes_table(codes: Iterable[Code]) -> str:
     rows = ["## Кодекси", "", "| Папка | Назва | Документ zakon |", "|---|---|---|"]
     for code in codes:
-        ids = ", ".join(f"[{i}]({ZAKON_URL.format(i)})" for i in code.zakon_ids)
+        ids = ", ".join(f"[{i}]({law_url(i)})" for i in code.zakon_ids)
         title = code.title
         if code.repealed:
             title += f" (втратив чинність {code.repealed:%d.%m.%Y})"

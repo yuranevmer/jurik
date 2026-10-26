@@ -13,18 +13,21 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import cache
 
 from jurik.config import Code
 from jurik.model import LawMeta
 from jurik.rada.index import LawIndex
+from jurik.translit import APOSTROPHES
 
 OMNIBUS_RE = re.compile(r"деяких\s+(інших\s+)?законодавчих\s+актів")
+_APOSTROPHE = re.compile(f"[{re.escape(APOSTROPHES)}]")
 
 
 def normalize_title(title: str) -> str:
     """Lowercase, collapse whitespace, unify apostrophes."""
-    t = re.sub(r"[’ʼ`‘]", "'", title or "")
+    t = _APOSTROPHE.sub("'", title or "")
     return re.sub(r"\s+", " ", t).strip().lower()
 
 
@@ -87,8 +90,30 @@ def omnibus_unmatched(index: LawIndex, codes: Iterable[Code]) -> tuple[int, int]
     return unmatched, len(omnibus)
 
 
-def _pct(part: int, whole: int) -> str:
+def _ratio(part: int, whole: int) -> str:
+    """``9/10 (90%)``."""
     return f"{part}/{whole} ({100 * part / whole:.0f}%)" if whole else "0/0"
+
+
+@dataclass
+class _Counts:
+    bills: int = 0  # law bills
+    laws: int = 0  # adopted laws
+    voted: int = 0  # laws with a recorded final vote
+    initiated: int = 0  # laws with initiators
+
+    def add(self, other: _Counts) -> None:
+        self.bills += other.bills
+        self.laws += other.laws
+        self.voted += other.voted
+        self.initiated += other.initiated
+
+    def line(self, label: str) -> str:
+        return (
+            f"{label}: law bills {self.bills}, laws {self.laws},"
+            f" with votes {_ratio(self.voted, self.laws)},"
+            f" with initiators {_ratio(self.initiated, self.laws)}"
+        )
 
 
 def coverage_report(
@@ -101,22 +126,19 @@ def coverage_report(
     """
     codes = list(codes)
     lines = []
-    total = [0, 0, 0, 0]
+    total = _Counts()
     for n in index.convocations:
         bills = [m for m in index.bills.values() if m.bill and m.bill.convocation == n]
         laws = [m for m in index.by_law.values() if m.bill and m.bill.convocation == n]
-        voted = sum(m.votes is not None for m in laws)
-        initiated = sum(bool(m.initiators) for m in laws)
-        for i, v in enumerate((len(bills), len(laws), voted, initiated)):
-            total[i] += v
-        lines.append(
-            f"skl{n}: law bills {len(bills)}, laws {len(laws)},"
-            f" with votes {_pct(voted, len(laws))}, with initiators {_pct(initiated, len(laws))}"
+        counts = _Counts(
+            bills=len(bills),
+            laws=len(laws),
+            voted=sum(m.votes is not None for m in laws),
+            initiated=sum(bool(m.initiators) for m in laws),
         )
-    lines.append(
-        f"total: law bills {total[0]}, laws {total[1]}, with votes {_pct(total[2], total[1])},"
-        f" with initiators {_pct(total[3], total[1])}"
-    )
+        total.add(counts)
+        lines.append(counts.line(f"skl{n}"))
+    lines.append(total.line("total"))
     for code in codes:
         if code.slug not in bases_by_code:
             continue
@@ -124,12 +146,12 @@ def coverage_report(
         found = laws_for_bases(index, bases)
         other = [m for m in bills_for_code(index, code) if m.status != "adopted"]
         lines.append(
-            f"{code.slug}: edition law bases found {_pct(len(found), len(bases))},"
+            f"{code.slug}: edition law bases found {_ratio(len(found), len(bases))},"
             f" not-adopted bills by title {len(other)}"
         )
     unmatched, omnibus = omnibus_unmatched(index, codes)
     lines.append(
         f"omnibus bills «до деяких законодавчих актів» naming no code (not matched):"
-        f" {_pct(unmatched, omnibus)}"
+        f" {_ratio(unmatched, omnibus)}"
     )
     return lines

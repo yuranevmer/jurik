@@ -26,9 +26,9 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from jurik.model import Edition, EditionKind, kyiv_today
-
-ZAKON_SHOW_URL = "https://zakon.rada.gov.ua/laws/show/{id}/ed{date}"
+from jurik.convocation import NREG_SUFFIX_ROMAN, roman
+from jurik.errors import JurikError
+from jurik.model import Edition, EditionKind, edition_url, kyiv_today
 
 # «Довідник станів документів» (/ogd/zak/laws/data/csv/stan.txt)
 STATUSES = {
@@ -53,11 +53,9 @@ COURT_RE = re.compile(r"^v\w+p710-\d\d$")
 # 2856-17, 2147а-19, 256/96-вр, 5465-10
 LAW_RE = re.compile(r"^\d+[а-яa-z]?(-\d\d|/\d\d-вр)$")
 NREG_RE = re.compile(r"^(\d+[а-яa-z]?)-(\d\d)$")
-CONVOCATION_SUFFIX = {14: "III", 15: "IV", 16: "V", 17: "VI", 18: "VII", 19: "VIII", 20: "IX"}
-ROMAN = [(10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")]
 
 
-class CardParseError(ValueError):
+class CardParseError(JurikError):
     """The card is not a valid document card or has no edition history."""
 
 
@@ -112,15 +110,6 @@ def edition_kind(bases: list[str]) -> EditionKind:
     return "other"
 
 
-def _roman(n: int) -> str:
-    out = ""
-    for value, sym in ROMAN:
-        while n >= value:
-            out += sym
-            n -= value
-    return out
-
-
 def display_number(nreg: str) -> str:
     """Best-effort displayed law number: ``4834-17`` → ``4834-VI``, ``256/96-вр`` → ``256/96-ВР``.
 
@@ -133,10 +122,10 @@ def display_number(nreg: str) -> str:
     if not m:
         return nreg
     num, conv = m.group(1), int(m.group(2))
-    if conv in CONVOCATION_SUFFIX:
-        return f"{num}-{CONVOCATION_SUFFIX[conv]}"
+    if conv in NREG_SUFFIX_ROMAN:
+        return f"{num}-{NREG_SUFFIX_ROMAN[conv]}"
     if conv <= 12:
-        return f"{num}-{_roman(conv)}"
+        return f"{num}-{roman(conv)}"
     return nreg
 
 
@@ -200,7 +189,7 @@ def parse_card(text: str, zakon_id: str, *, today: date | None = None) -> CardIn
             date=d,
             bases=bases,
             kind=edition_kind(bases),
-            url=ZAKON_SHOW_URL.format(id=zakon_id, date=d.strftime("%Y%m%d")),
+            url=edition_url(zakon_id, d),
             future=conditional or d > today,
             comment=str(raw.get("comment") or "").strip(),
         )

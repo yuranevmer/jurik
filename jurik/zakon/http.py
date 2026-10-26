@@ -19,10 +19,9 @@ from pathlib import Path
 
 import httpx
 
-from jurik.http import ThrottledHttp, write_atomic
+from jurik.errors import JurikError
+from jurik.http import BASE_URL, OpenDataClient, write_atomic
 
-BASE_URL = "https://data.rada.gov.ua"
-OPENDATA_UA = "OpenData"
 CARD_FILE = "card.json.gz"
 
 ERROR_MARKERS = (
@@ -34,8 +33,12 @@ ERROR_MARKERS = (
 )
 
 
-class ZakonError(RuntimeError):
-    """Request failed or returned an error page (never cached)."""
+class ZakonError(JurikError):
+    """Request failed, returned an error page (never cached), or a cached file is unreadable."""
+
+
+class NotCachedError(ZakonError):
+    """A card or edition read from the cache only has not been downloaded yet."""
 
 
 def safe_id(zakon_id: str) -> str:
@@ -54,7 +57,7 @@ def check_error_page(text: str, url: str) -> None:
             raise ZakonError(f"{url}: error page ({marker!r})")
 
 
-class ZakonClient:
+class ZakonClient(OpenDataClient):
     def __init__(
         self,
         cache_dir: Path,
@@ -68,10 +71,9 @@ class ZakonClient:
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self.cache_dir = Path(cache_dir) / "zakon"
-        self.refetch = refetch
-        self._http = ThrottledHttp(
-            user_agent=OPENDATA_UA,
+        super().__init__(
+            Path(cache_dir) / "zakon",
+            refetch=refetch,
             error=ZakonError,
             min_interval=min_interval,
             retries=retries,
@@ -81,15 +83,6 @@ class ZakonClient:
             sleep=sleep,
             clock=clock,
         )
-
-    def close(self) -> None:
-        self._http.close()
-
-    def __enter__(self) -> ZakonClient:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        self.close()
 
     # --- urls and cache paths -------------------------------------------------
 
@@ -133,6 +126,11 @@ class ZakonClient:
         write_gz(path, text)
         return text
 
+    def cached_edition(self, zakon_id: str, ed_date: str) -> str:
+        """Edition html from the cache only (never downloads): ``NotCachedError`` if it is
+        not downloaded yet, ``ZakonError`` if the file is unreadable."""
+        return read_cached(self.edition_path(zakon_id, ed_date), f"{zakon_id} ed{ed_date}")
+
     def is_cached(self, path: Path) -> bool:
         return path.is_file() and not self.refetch
 
@@ -150,4 +148,15 @@ def write_gz(path: Path, text: str) -> None:
 
 
 def read_gz(path: Path) -> str:
-    return gzip.decompress(path.read_bytes()).decode("utf-8")
+    """Text of a gzip cache file; ``ZakonError`` if it is missing, truncated or not UTF-8."""
+    try:
+        return gzip.decompress(path.read_bytes()).decode("utf-8")
+    except (OSError, EOFError, UnicodeDecodeError) as e:
+        raise ZakonError(f"unreadable cache {path}: {e}") from e
+
+
+def read_cached(path: Path, what: str) -> str:
+    """``read_gz`` of a file that must already be cached: ``NotCachedError`` if it is not."""
+    if not path.is_file():
+        raise NotCachedError(f"{what} not cached ({path}), run `jurik fetch`")
+    return read_gz(path)

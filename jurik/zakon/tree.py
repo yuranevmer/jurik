@@ -13,8 +13,9 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
+from jurik.errors import JurikError
 from jurik.model import Article, DocTree, Edition, Unit, UnitKind
-from jurik.zakon.paragraphs import Para
+from jurik.zakon.paragraphs import EXCLUDED_WORD, NOTE, Para, norm_index
 
 RANK: dict[UnitKind, int] = {
     "final": -1,  # unnumbered «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ»: closes every level
@@ -30,7 +31,6 @@ RANK: dict[UnitKind, int] = {
 EXCLUDED_TITLE = "Виключена"
 LAPSED_TITLE = "Втратила чинність"
 
-_EXCLUDED_WORD = re.compile(r"^(виключен[аоий]|виключено)\.?$", re.I)
 # "{Статтю 196 виключено на підставі Закону № 3585-IX від 22.02.2024 }"; the source also has
 # "{С таттю 115 виключено …}" (split word), "{Cтаттю 990 …}" (Latin C) and
 # "{Стаття 209 втратила чинність з 1 січня 2017 року - див. …}"
@@ -40,15 +40,20 @@ _EXCLUSION_NOTE = re.compile(
     re.I | re.S,
 )
 # inline editorial note inside a text paragraph: "174.5. {Абзац перший … виключено …}"
-_INLINE_NOTE = re.compile(r"\s*\{[^{}]*\}")
-# first paragraph of the closing block: signature line/table or the "***" separator
+_INLINE_NOTE = re.compile(r"\s*" + NOTE.pattern)
 # title of a level of final/transitional provisions («ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ»)
 _FINAL_TITLE = re.compile(r"прикінцев|перехідн", re.I)
+# first paragraph of the closing block: signature line/table or the "***" separator
 _CLOSING_START = re.compile(r"^(?:\|\s*)?(?:Президент України|Голова Верховної Ради)\b|^\*\*\*$")
 
 
-class TreeError(ValueError):
+class TreeError(JurikError):
     """The paragraphs do not form a consistent document tree."""
+
+
+def _where(p: Para, pos: int) -> str:
+    """``paragraph 12 (#n34)``: position of ``p`` for error messages."""
+    return f"paragraph {pos}" + (f" (#{p.anchor})" if p.anchor else "")
 
 
 def _join(parts: list[str]) -> str:
@@ -74,7 +79,7 @@ def _exclusion(text: str, number: str) -> tuple[str, str] | None:
     чинність з … - див. …")``.
     """
     m = _EXCLUSION_NOTE.match(text)
-    if not m or re.sub(r"\s*-\s*", "-", m.group("num")) != number:
+    if not m or norm_index(m.group("num")) != number:
         return None
     title = EXCLUDED_TITLE if m.group("verb").lower() == "виключено" else LAPSED_TITLE
     basis = " ".join(m.group("basis").split()).rstrip(".").strip()
@@ -124,7 +129,7 @@ class _Builder:
         # "Стаття 5. Виключена" or an article whose only content is the exclusion note
         if art.excluded or (stub and not art.body and not art.title):
             art.excluded = True
-            if not art.title or _EXCLUDED_WORD.match(art.title):
+            if not art.title or EXCLUDED_WORD.match(art.title):
                 art.title = stub[0] if stub else EXCLUDED_TITLE
             if not art.body:
                 art.body = stub[1] if stub else ""
@@ -147,14 +152,11 @@ class _Builder:
                 if (
                     not other.children
                     and not self.provisions.get(id(other))
-                    and (_EXCLUDED_WORD.match(other.title))
+                    and (EXCLUDED_WORD.match(other.title))
                 ):
                     del siblings[i]  # Tax XIV: "Глава 1 виключена." then "Глава 1 СПРОЩЕНА …"
                     break
-                raise TreeError(
-                    f"duplicate {unit.kind} {unit.number} at paragraph {pos}"
-                    f"{f' (#{p.anchor})' if p.anchor else ''}"
-                )
+                raise TreeError(f"duplicate {unit.kind} {unit.number} at {_where(p, pos)}")
         siblings.append(unit)
         self.stack.append(unit)
 
@@ -177,13 +179,12 @@ class _Builder:
             variant = max(last.variant, 1) + 1
         elif p.number in self.seen_articles:
             raise TreeError(
-                f"duplicate article {p.number} at paragraph {pos}"
-                f"{f' (#{p.anchor})' if p.anchor else ''}, "
+                f"duplicate article {p.number} at {_where(p, pos)}, "
                 f"first at paragraph {self.seen_articles[p.number]}"
             )
         self.seen_articles.setdefault(p.number, pos)
         title = p.title
-        excluded = bool(_EXCLUDED_WORD.match(title))
+        excluded = bool(EXCLUDED_WORD.match(title))
         if not excluded and (stub := _exclusion(title, p.number)):
             # ЦК: "Стаття 196. {Статтю 196 виключено на підставі Закону № …}"
             excluded = True

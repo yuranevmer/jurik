@@ -14,7 +14,7 @@ from jurik.model import Article, DocTree, Edition, Unit
 from jurik.render import render
 from jurik.verify import verify_paragraphs
 from jurik.zakon.paragraphs import Para, extract_paragraphs, match_heading, normalize_text
-from jurik.zakon.tree import build_tree
+from jurik.zakon.tree import TreeError, build_tree
 
 FIX = Path(__file__).parent / "fixtures" / "zakon"
 ELECTORAL = "396-20_ed20261022_build_fragment.html"
@@ -76,7 +76,7 @@ def test_duplicate_article_outside_final_provisions_still_fails(electoral_paras)
     dup = next(p for p in paras if p.kind == "article_start" and p.number == "27")
     pos = next(i for i, p in enumerate(paras) if p.kind == "heading" and "XXXXI." in p.text)
     paras.insert(pos + 2, dup)
-    with pytest.raises(ValueError, match="duplicate article 27"):
+    with pytest.raises(TreeError, match="duplicate article 27"):
         tree_of(paras, "396-20")
 
 
@@ -191,7 +191,7 @@ def test_admin_procedure_repeated_article_number_kept_as_variant():
 def test_repeated_article_number_after_other_article_still_fails():
     a = Para("Стаття 1. А", "article_start", "", number="1", title="А")
     b = Para("Стаття 2. Б", "article_start", "", number="2", title="Б")
-    with pytest.raises(ValueError, match="duplicate article 1"):
+    with pytest.raises(TreeError, match="duplicate article 1"):
         tree_of([a, b, a], "x")
 
 

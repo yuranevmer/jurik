@@ -25,22 +25,24 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
-from jurik.zakon.paragraphs import Para, extract_paragraphs
+from jurik.translit import APOSTROPHES
+from jurik.zakon.paragraphs import EXCLUDED_WORD, NOTE, Para, extract_paragraphs
+from jurik.zakon.tree import EXCLUDED_TITLE, LAPSED_TITLE
 
 MAX_DIFFS = 5
 
-_NOTE = re.compile(r"\{[^{}]*\}")
-_APOSTROPHES = re.compile(r"['’ʼ`]")
+_APOSTROPHE = re.compile(f"[{re.escape(APOSTROPHES)}]")
 _WORD = re.compile(r"[^\W_]+")
-_EXCLUDED_STUB = re.compile(r"^# Стаття [\d-]+\. (?:Виключена|Втратила чинність)\n")
-_EXCLUDED_LEVEL = re.compile(r"^(виключен[аоий]|виключено)\.?$", re.I)
+_EXCLUDED_STUB = re.compile(
+    rf"^# Стаття [\d-]+\. (?:{re.escape(EXCLUDED_TITLE)}|{re.escape(LAPSED_TITLE)})\n"
+)
 _TEXT_KINDS = ("body", "heading", "article_start")
 
 
 def normalize_words(text: str) -> list[str]:
     """Words of ``text`` without ``{…}`` notes, punctuation, markup and case."""
-    text = _NOTE.sub(" ", text)
-    text = _APOSTROPHES.sub("", text)
+    text = NOTE.sub(" ", text)
+    text = _APOSTROPHE.sub("", text)
     return _WORD.findall(text.casefold())
 
 
@@ -110,7 +112,7 @@ def verify_paragraphs(paras: Sequence[Para], files: Mapping[str, bytes]) -> Veri
         extra -= _count(t for t in md.values() if _EXCLUDED_STUB.match(t))
     if missing:
         missing -= _count(
-            p.text for p in paras if p.kind == "heading" and _EXCLUDED_LEVEL.match(p.title)
+            p.text for p in paras if p.kind == "heading" and EXCLUDED_WORD.match(p.title)
         )
     result = VerifyResult(words=expected.total(), files=len(md), missing=missing, extra=extra)
     if not result.ok:

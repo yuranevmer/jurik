@@ -1,10 +1,9 @@
 import json
-import subprocess
 from datetime import date
 
 import pytest
 from click.testing import CliRunner
-from gitrepo import git
+from gitrepo import git, git_bytes
 
 from jurik.build.changeset import ChangeSet
 from jurik.build.fastimport import Ident, Stream, run
@@ -143,9 +142,7 @@ def test_unmerged_bill_with_bad_registered_date(tmp_path):
         ChangeSet(modified={"bills/4/9.md": b"# 9\n"}),
     )
     s.file.seek(0)
-    subprocess.run(
-        ["git", "-C", str(repo), "fast-import", "--quiet"], input=s.file.read(), check=True
-    )
+    git_bytes(repo, "fast-import", "--quiet", input=s.file.read())
     res = export(repo, date(2014, 1, 1), tmp_path / "ds", with_bills=True)
     assert "bills/4/9.md" in res.bills  # unknown registration date: included
 

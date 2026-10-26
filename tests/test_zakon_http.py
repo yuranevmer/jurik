@@ -4,8 +4,9 @@ import json
 import httpx
 import pytest
 
+from jurik.http import OPENDATA_UA
 from jurik.zakon.http import (
-    OPENDATA_UA,
+    NotCachedError,
     ZakonClient,
     ZakonError,
     check_error_page,
@@ -256,3 +257,21 @@ def test_real_opendata_card(tmp_path):
         data = json.loads(client.card("2947-14"))
     assert data["nreg"] == "2947-14"
     assert len(data["eds"]) >= 60
+
+
+def test_read_gz_unreadable_is_zakon_error(tmp_path):
+    path = tmp_path / "x.gz"
+    path.write_bytes(gzip.compress("текст".encode())[:-6])
+    with pytest.raises(ZakonError, match="unreadable cache"):
+        read_gz(path)
+    with pytest.raises(ZakonError, match="unreadable cache"):
+        read_gz(tmp_path / "missing.gz")
+
+
+def test_cached_edition_never_downloads(tmp_path):
+    client, calls, _ = make_client(tmp_path, lambda r: httpx.Response(200, text=DOC))
+    with pytest.raises(NotCachedError, match="2947-14 ed20020110 not cached"):
+        client.cached_edition("2947-14", "20020110")
+    write_gz(client.edition_path("2947-14", "20020110"), DOC)
+    assert client.cached_edition("2947-14", "20020110") == DOC
+    assert calls == []

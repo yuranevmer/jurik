@@ -14,19 +14,31 @@ import tarfile
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+from typing import cast, get_args
 
 import yaml
 
-from jurik.build.check import CheckError, MainCommit, git, in_force_of, main_log
-from jurik.build.history import MAIN, ROMAN
-from jurik.build.message import parse_trailers, status_label
+from jurik.build.message import (
+    BILL,
+    EDITION,
+    REGISTERED,
+    STATUS,
+    parse_edition_id,
+    parse_trailers,
+    status_label,
+)
+from jurik.build.refs import MAIN
+from jurik.build.repo import MainCommit, RepoError, git, in_force_of, main_log
+from jurik.convocation import label
+from jurik.errors import JurikError
+from jurik.model import LawStatus
 from jurik.rada.index import parse_day
 
 MANIFEST = "manifest.json"
 SOURCES = ["https://zakon.rada.gov.ua", "https://data.rada.gov.ua"]
 
 
-class ExportError(RuntimeError):
+class ExportError(JurikError):
     """Nothing to export or the output directory cannot be used."""
 
 
@@ -63,8 +75,8 @@ def latest_editions(commits: list[MainCommit]) -> dict[str, str]:
     out: dict[str, str] = {}
     for c in commits:
         for key, value in c.trailers:
-            zakon_id, sep, stamp = value.rpartition("/ed")  # 254к/96-ВР/ed19960628
-            if key == "Edition" and sep:
+            if key == EDITION and (parsed := parse_edition_id(value)):
+                zakon_id, stamp = parsed
                 out[zakon_id] = f"ed{stamp}"
     return out
 
@@ -75,7 +87,7 @@ class BillBranch:
     tip: str
     convocation: int
     number: str
-    status: str
+    status: LawStatus | None  # None: no or unknown Status: trailer
     registered: date | None
     message: str = ""
 
@@ -96,17 +108,17 @@ def unmerged_bills(repo: Path) -> list[BillBranch]:
         ref, tip = line.split("\x00")
         message = git(repo, "log", "-1", "--format=%B", tip).decode("utf-8")
         trailers = dict(parse_trailers(message))
-        conv, _, number = trailers.get("Bill", "").partition("/")
-        registered = trailers.get("Registered", "")
+        conv, _, number = trailers.get(BILL, "").partition("/")
+        status = trailers.get(STATUS, "")
         bills.append(
             BillBranch(
-                ref,
-                tip,
-                int(conv) if conv.isdigit() else 0,
-                number,
-                trailers.get("Status", ""),
-                parse_day(registered),
-                message,
+                ref=ref,
+                tip=tip,
+                convocation=int(conv) if conv.isdigit() else 0,
+                number=number,
+                status=cast(LawStatus, status) if status in get_args(LawStatus) else None,
+                registered=parse_day(trailers.get(REGISTERED, "")),
+                message=message,
             )
         )
     return bills
@@ -114,10 +126,9 @@ def unmerged_bills(repo: Path) -> list[BillBranch]:
 
 def bill_banner(bill: BillBranch) -> str:
     """Warning line put on top of an exported bill file, with the bill's real status."""
-    conv = ROMAN.get(bill.convocation, str(bill.convocation))
     status = status_label(bill.status) if bill.status else "невідомо"
     return (
-        f"> Законопроект № {bill.number} ({conv} скликання), статус: {status}."
+        f"> Законопроект № {bill.number} ({label(bill.convocation)} скликання), статус: {status}."
         " Не є чинним законом.\n\n"
     )
 
@@ -178,7 +189,7 @@ def export(repo: Path, at: date, out: Path, *, with_bills: bool = False) -> Expo
     """
     try:
         commits = commits_at(repo, at)
-    except CheckError as e:
+    except RepoError as e:
         raise ExportError(str(e)) from e
     if not commits:
         raise ExportError(f"no commit of {MAIN} is in force on {at.isoformat()}")
@@ -187,7 +198,7 @@ def export(repo: Path, at: date, out: Path, *, with_bills: bool = False) -> Expo
     _prepare_out(out)
     try:
         names = _extract(repo, sha, out)
-    except CheckError as e:
+    except RepoError as e:
         raise ExportError(str(e)) from e
     codes = sorted({n.split("/")[1] for n in names if n.startswith("codes/") and n.count("/") > 1})
     result = ExportResult(sha, in_force_of(commit), codes, len(names))

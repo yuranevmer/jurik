@@ -9,12 +9,14 @@ from pathlib import Path
 
 import yaml
 
+from jurik.errors import JurikError
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REGISTRY = PROJECT_ROOT / "codes.yaml"
 REQUIRED_FIELDS = ("slug", "zakon_id", "title")
 
 
-class ConfigError(ValueError):
+class ConfigError(JurikError):
     """Invalid codes.yaml content."""
 
 

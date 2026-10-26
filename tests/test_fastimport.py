@@ -1,4 +1,3 @@
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -115,7 +114,7 @@ def test_prepare_repo_refuses_foreign_directory(tmp_path):
 def test_prepare_repo_refuses_foreign_git_checkout(tmp_path):
     out = tmp_path / "project"
     out.mkdir()
-    subprocess.run(["git", "init", "-q", str(out)], check=True)
+    git(out, "init", "-q")
     (out / "src.py").write_text("keep me")
     with pytest.raises(FastImportError, match="not a repository built by jurik"):
         prepare_repo(out)

@@ -40,8 +40,8 @@ _TABLE: dict[str, tuple[str, str]] = {
     "ю": ("yu", "iu"),
     "я": ("ya", "ia"),
 }
-# apostrophes are dropped, not treated as word separators
-_APOSTROPHES = "'’ʼ`‘"
+# every apostrophe variant of the sources; transliteration drops them (not word separators)
+APOSTROPHES = "'’ʼ`‘"
 
 _ROMAN = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 # X{0,4}: the Виборчий кодекс numbers its sections additively «Розділ XXXX», «XXXXII» (40, 42)
@@ -54,7 +54,7 @@ def transliterate(text: str) -> str:
     prev_letter = False
     prev = ""
     for ch in text:
-        if ch in _APOSTROPHES:
+        if ch in APOSTROPHES:
             continue  # apostrophe does not break a word
         low = ch.lower()
         if low in _TABLE:

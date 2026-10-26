@@ -9,10 +9,10 @@ from jurik.rada.client import RadaError
 from jurik.rada.index import (
     Vote,
     act_to_nreg,
+    bill_law_title,
     build_index,
     display_act,
     is_law_bill,
-    law_title,
     person_from_fio,
     pick_vote,
     status_of,
@@ -31,9 +31,7 @@ def test_law_meta_complete_from_csv(index):
     assert meta.display_number == "524-V"
     assert meta.law_title.startswith("Про внесення змін до Сімейного кодексу України")
     assert meta.bill == BillRef(5, "0903")
-    assert meta.initiators == [
-        Person("Віктор Янукович", "yanukovych-viktor-fedorovych")
-    ]
+    assert meta.initiators == [Person("Віктор Янукович", "yanukovych-viktor-fedorovych")]
     assert meta.registered == date(2006, 5, 25)
     assert meta.adopted == date(2006, 12, 22)
     # «у другому читанні і в цілому», amendments and the re-vote are ignored
@@ -68,9 +66,7 @@ def test_rejected_and_other_statuses(index):
     rejected = index.bills[BillRef(5, "2221")]
     assert rejected.status == "rejected"
     assert rejected.law_number == "" and rejected.adopted is None
-    assert rejected.initiators == [
-        Person("Анатолій Семинога", "semynoha-anatolii-ivanovych")
-    ]
+    assert rejected.initiators == [Person("Анатолій Семинога", "semynoha-anatolii-ivanovych")]
     assert index.bills[BillRef(9, "15112-д")].status == "rejected"
     assert index.bills[BillRef(5, "1067")].status in {"removed", "pending", "withdrawn"}
     assert set(index.by_law) == {"524-16", "549-16", "5013-20"}
@@ -125,11 +121,11 @@ def test_display_act():
     assert display_act("650-XIV") == "650-XIV"
 
 
-def test_law_title():
-    assert law_title("Проєкт Закону про внесення змін") == "Про внесення змін"
-    assert law_title("про ратифікацію  Угоди") == "Про ратифікацію Угоди"
+def test_bill_law_title():
+    assert bill_law_title("Проєкт Закону про внесення змін") == "Про внесення змін"
+    assert bill_law_title("про ратифікацію  Угоди") == "Про ратифікацію Угоди"
     unclosed = '"Про внесення змін до Закону "Про X"'
-    assert law_title(unclosed) == 'Про внесення змін до Закону "Про X"'
+    assert bill_law_title(unclosed) == 'Про внесення змін до Закону "Про X"'
 
 
 def test_is_law_bill():

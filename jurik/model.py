@@ -8,6 +8,22 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 KYIV = ZoneInfo("Europe/Kyiv")
+# a document (law, code) on zakon.rada.gov.ua by its nreg / zakon id
+ZAKON_SHOW_URL = "https://zakon.rada.gov.ua/laws/show/{}"
+
+
+def law_url(nreg: str) -> str:
+    return ZAKON_SHOW_URL.format(nreg)
+
+
+def edition_stamp(day: date) -> str:
+    """``YYYYMMDD``: how the sources and the cache name an edition date."""
+    return f"{day:%Y%m%d}"
+
+
+def edition_url(zakon_id: str, day: date) -> str:
+    """``https://zakon.rada.gov.ua/laws/show/<zakon_id>/edYYYYMMDD``."""
+    return f"{law_url(zakon_id)}/ed{edition_stamp(day)}"
 
 
 def kyiv_today() -> date:
@@ -22,6 +38,8 @@ UnitKind = Literal[
     "final", "book", "part", "section", "subsection", "chapter", "paragraph", "group"
 ]
 LawStatus = Literal["adopted", "rejected", "withdrawn", "removed", "pending"]
+# ``status`` of a rendered code's _meta.yaml (a repealed code's folder is deleted instead)
+CodeStatus = Literal["in_force"]
 
 
 @dataclass
@@ -35,6 +53,11 @@ class Edition:
     url: str
     future: bool = False
     comment: str = ""  # condition of a conditional edition ("через 6 місяців з дня ...")
+
+    @property
+    def stamp(self) -> str:
+        """``YYYYMMDD`` of the edition date (cache file names, ``Edition:`` trailers)."""
+        return edition_stamp(self.date)
 
 
 @dataclass

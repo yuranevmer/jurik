@@ -1,9 +1,18 @@
 import gzip
+import json
+from datetime import date
+from pathlib import Path
 
 from click.testing import CliRunner
+from gitrepo import git
 
 from jurik import cli
+from jurik.build.check import Violation
+from jurik.build.refs import RefError
 from jurik.cli import main
+from jurik.model import BillRef, LawMeta
+from jurik.rada.index import LawIndex
+from jurik.zakon.http import ZakonClient, write_gz
 
 
 def test_help_lists_commands():
@@ -57,11 +66,6 @@ def test_cli_rada_bad_convocation():
 
 
 def test_cli_build_linear_from_cache(tmp_path, fixtures_dir, monkeypatch):
-    import json
-    import subprocess
-
-    from jurik.zakon.http import ZakonClient, write_gz
-
     monkeypatch.chdir(tmp_path)
     client = ZakonClient(tmp_path / "cache")
     card = {
@@ -80,9 +84,7 @@ def test_cli_build_linear_from_cache(tmp_path, fixtures_dir, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "2 commits" in result.output
     assert "check_repo: 0 violations" in result.output
-    log = subprocess.run(
-        ["git", "-C", "laws", "log", "--format=%s"], capture_output=True, text=True, check=True
-    ).stdout.splitlines()
+    log = git(Path("laws"), "log", "--format=%s").splitlines()
     assert log == [
         "Закон № 407-IV (Сімейний кодекс України)",
         "Сімейний кодекс України: перша редакція",
@@ -99,11 +101,6 @@ def test_cli_build_linear_missing_cache_fails(tmp_path, monkeypatch):
 
 
 def test_cli_build_full_creates_bill_branch(tmp_path, fixtures_dir, monkeypatch):
-    import json
-    import subprocess
-
-    from jurik.zakon.http import ZakonClient, write_gz
-
     monkeypatch.chdir(tmp_path)
     client = ZakonClient(tmp_path / "cache")
     card = {
@@ -122,24 +119,11 @@ def test_cli_build_full_creates_bill_branch(tmp_path, fixtures_dir, monkeypatch)
     assert result.exit_code == 0, result.output
     assert "3 commits, 1 branches, 1 merges" in result.output
     assert "check_repo: 0 violations" in result.output
-    refs = subprocess.run(
-        ["git", "-C", "laws", "for-each-ref", "--format=%(refname:short)", "refs/heads"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.split()
+    refs = git(Path("laws"), "for-each-ref", "--format=%(refname:short)", "refs/heads").split()
     assert sorted(refs) == ["bill/law/407-15", "main"]
 
 
 def test_cli_build_rejected_bills_limit(tmp_path, fixtures_dir, monkeypatch):
-    import json
-    import subprocess
-    from datetime import date
-
-    from jurik.model import BillRef, LawMeta
-    from jurik.rada.index import LawIndex
-    from jurik.zakon.http import ZakonClient, write_gz
-
     monkeypatch.chdir(tmp_path)
     client = ZakonClient(tmp_path / "cache")
     card = {
@@ -182,20 +166,11 @@ def test_cli_build_rejected_bills_limit(tmp_path, fixtures_dir, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "2 commits, 1 branches, 0 merges" in result.output
     assert "check_repo: 0 violations" in result.output
-    show = subprocess.run(
-        ["git", "-C", "laws", "show", "bill/9/1:bills/9/1.md"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
+    show = git(Path("laws"), "show", "bill/9/1:bills/9/1.md")
     assert show.endswith("---\n\nТекст 1\n")
 
 
 def _family_cache(tmp_path, fixtures_dir):
-    import json
-
-    from jurik.zakon.http import ZakonClient, write_gz
-
     client = ZakonClient(tmp_path / "cache")
     card = {
         "nreg": "2947-14",
@@ -220,8 +195,6 @@ def test_cli_build_warns_without_law_index(tmp_path, fixtures_dir, monkeypatch):
 
 
 def test_cli_build_reports_violations(tmp_path, fixtures_dir, monkeypatch):
-    from jurik.build.check import Violation
-
     monkeypatch.chdir(tmp_path)
     _family_cache(tmp_path, fixtures_dir)
     monkeypatch.setattr(cli, "check_repo", lambda *a: [Violation("b", "x")])
@@ -242,12 +215,12 @@ def test_cli_build_refuses_foreign_out(tmp_path, fixtures_dir, monkeypatch):
     assert (tmp_path / "laws" / "keep.txt").exists()
 
 
-def test_cli_build_value_error_is_click_error(tmp_path, fixtures_dir, monkeypatch):
+def test_cli_build_domain_error_is_click_error(tmp_path, fixtures_dir, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _family_cache(tmp_path, fixtures_dir)
 
     def boom(*a, **kw):
-        raise ValueError("cannot make a ref name from '..'")
+        raise RefError("cannot make a ref name from '..'")
 
     monkeypatch.setattr(cli, "plan_full", boom)
     result = CliRunner().invoke(main, ["build", "--code", "family", "--out", "laws"])
