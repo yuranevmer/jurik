@@ -305,3 +305,49 @@ comparing `(path, new blob)` of `git diff tip^ tip` and `git diff M^1 M`): 1516 
 new blob, or the deleted path did not exist yet), so the branch diff is the merge's change
 set minus no-ops in every case. The branch base equals the merge's first parent in only 40
 cases (branches start at `main` on the registration date, as designed).
+
+## Review fixes: history model rebuild (2026-10-26)
+
+Code review found that a branch commit started from `main` on the registration date but
+carried the whole-file change set relative to `main` head. When another law changed the
+same file in between, the branch diff carried that law's text too, and since the merge
+result equals the branch tip on those paths, `git log`/`git blame` of the file followed the
+branch and skipped the `main` commits in between. Example: `codes/labour/03-trudovyi-dohovir/
+art-0041.md`, point «3-1) … домашнім працівником» (law 3680-IX) was blamed on bill 10392
+(4742-IX) and `git log` of the file never listed 3680-IX.
+
+Fixes (see the plan, Task 13 review note): the branch base is the latest of `main` on the
+registration date, the initial commit of each touched code and the last `main` commit that
+changed any path of the change set; `_meta.yaml` lost `edition_date` (it changed with every
+edition and would pin every base to the head); later stages continue on the previous tip
+only while it equals `main`; editions of one In-force date sharing a basis are one step;
+the initial commit's `In-force:` is the card's entry into force (hist `podid` 1); new
+invariant (e) `git diff M^2^ M^2` == `git diff M^1 M`. Rebuilt with
+`uv run jurik build --bills-limit 500` (490 s inside the build, all bill texts cached,
+1.0 GB max RSS); `check_repo`: **0 violations** (a–e). Superscript indices are joined in
+the same rebuild («3-1)», «статтями 166-10»).
+
+| Metric (`build/laws`) | Before | After |
+|---|---:|---:|
+| merges where `git diff P2^ P2` ≠ `git diff P1 M` (raw `diff-tree`, blobs compared) | 1524 / 1775 | **0 / 1593** |
+| … the same ignoring `_meta.yaml` | 939 / 1775 | **0 / 1593** |
+| branches merged more than once / of them with two merges on the same `In-force:` | 168 / **77** | 98 / **0** |
+| branch base = merge's first parent | 40 | 117 |
+| `--first-parent main` commits | 1808 | 1626 (25 initial, 1409 law, 184 multiple, 4 court, 3 unknown, 1 repealed) |
+| merges / merged branches | 1775 / 1547 | 1593 / 1459 |
+| all commits / `bill/*` branches / blobs | 4083 / 2047 / 33521 | 3719 / 1959 / 30840 |
+| `.git` | 78 MB | 76 MB |
+| `git log main -- codes/labour/…/art-0041.md` | 14 commits, no 3680-IX | 20 commits, 3680-IX included |
+| `git blame` of «3-1) … домашнім працівником» | bill 10392 (4742-IX) | bill 5695 (3680-IX) |
+
+182 fewer merges: same-date editions of several codes sharing a law (e.g. 4952-IX for
+bankruptcy and 4952-IX + 4963-IX for land on 2026-10-01) are now one step instead of two
+«stages» of one branch. The "before" counts were measured with a script on the old build
+(raw `git diff-tree` output for both sides, so 1524 includes the old `_meta.yaml`
+`edition_date` line; the reviewer's 896 compared paths only).
+
+`In-force:` of the initial commits now: Податковий, Бюджетний 2011-01-01; ЦК, ГК, КВК,
+Сімейний 2004-01-01; КК 2001-09-01; Земельний 2002-01-01; КАС, ЦПК 2005-09-01; Повітряний
+2011-09-16; Митний 2012-06-01; КПК 2012-11-19; КЦЗ 2012-11-21; КУзПБ 2019-04-21; Виборчий
+2020-01-01; Лісовий 1994-04-13. Codes without an entry-into-force event after their first
+edition keep the edition date.
