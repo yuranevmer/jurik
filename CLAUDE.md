@@ -39,7 +39,21 @@ Python-пакет `jurik`: собирает git-репозиторий `build/la
 - Содержимое собранного репозитория (сообщения коммитов, заголовки, `build/laws/README.md`)
   на украинском; пути и имена веток только ASCII (`translit.slug`, `refs.ref_safe`).
 - Ось «состояние на дату» = трейлер `In-force:` по `--first-parent main`, никогда не
-  committer date (она = дата принятия закона).
+  committer date (она = дата принятия закона). Каждая проверка/запрос истории идёт по
+  `--first-parent main`. Коммиты веток `bill/*` не несут `In-force:`/`Edition:`
+  (`format_message(require_in_force=False)`).
+- `In-force:` редакции = дата редакции или вступление документа в силу (событие карточки
+  `podid` 1), если оно позже; инвариант (a) сверяет с датой из плана, не из `Edition:`.
+- Коммит ветки закона и его merge несут один change set, база ветки выбирается так, чтобы
+  `git diff M^2^ M^2` == `git diff M^1 M` (инвариант (e)); не добавлять в отрендеренные
+  файлы данные, меняющиеся в каждой редакции (поэтому в `_meta.yaml` нет даты редакции).
+- `ref_safe` переводит в нижний регистр (case-insensitive FS); коллизии имён веток
+  решаются суффиксом `-2` (`_unique_ref`).
+- Сгенерированный `build/laws/README.md` входит в change set первого коммита `main`, чтобы
+  число коммитов `main` = шагам плана (инвариант (a)).
+- Даты `repealed`/`repealed_by` в `codes.yaml` заполняются вручную по карточке.
+- `jurik build` удаляет `--out`, только если это репозиторий с `jurik.built` в
+  `.git/config`; «сегодня» = `kyiv_today()`.
 - Ошибки доменных шагов = собственные исключения (`BuildError`, `RenderError`, `ZakonError`,
   …), CLI превращает их в `click.ClickException`.
 - Код, docstring и отчёты пилотов (`docs/pilot-*.md`) на английском; `README.md`, план и

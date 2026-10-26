@@ -209,7 +209,7 @@ class LawMeta:        # из открытых данных Рады
 | Случай | Что создаётся |
 |---|---|
 | Первая редакция кодекса | коммит в `main`, author = инициатор или «Верховна Рада України», date = дата принятия кодекса, `Reason: initial` |
-| Одна підстава-закон, первый этап | ветка `bill/<созыв>/<номер>` от `main` на дату регистрации; коммит с change set; merge в `main` |
+| Одна підстава-закон, первый этап | ветка `bill/<созыв>/<номер>` от `main` на дату регистрации (или позже, если файлы change set менялись после неё, см. ниже); коммит с change set; merge в `main` |
 | Та же підстава, следующий этап вступления в силу | ещё один коммит в той же ветке (`Stage: 2`) и повторный merge той же ветки в `main` |
 | Несколько підстав в одной редакции | один коммит с несколькими `Law:`/`Bill:` трейлерами и `Reason: multiple`; ветка `bill/<созыв>/<номер>` первого по номеру закона, остальные перечислены в сообщении (diff неразделим в подходе A) |
 | Підстава = решение КСУ | коммит в `main`, author «Конституційний Суд України», `Reason: court` |
@@ -252,19 +252,20 @@ Builder пишет один поток в `git fast-import`:
 - merge: `commit refs/heads/main`, `from :main_head`, `merge :branch_commit`, и тот же change set. Дерево = текущий main + правки = новый официальный текст по построению;
 - линейный коммит: `from :main_head` + change set;
 - `main_at_registered` = последний коммит `main`, у которого `In-force:` ≤ дата регистрации (ось времени та же, что везде).
+- 🔧 (review fix) база ветки = самый поздний из: `main_at_registered`, первый коммит затронутых кодексов, последний коммит `main`, менявший любой путь change set. Иначе ветка от старой базы несла в своём diff правки законов, влитых между регистрацией и принятием, а `git log`/`git blame` статьи пропускали эти законы (было 939 из 1775 merge без учёта `_meta.yaml`). Новый инвариант (e): `git diff M^2^ M^2` == `git diff M^1 M`. Из `_meta.yaml` убрана `edition_date` (менялась в каждой редакции и тянула бы любую ветку к голове `main`); редакции экспорта — `editions` в `manifest.json`. Следующий этап закона — поверх прошлого конца ветки, если его дерево ещё равно `main`, иначе поверх `main` (он содержит прошлый merge). `In-force:` первой редакции (и редакций до вступления в силу) = событие карточки «набрання чинності» (`podid` 1), если оно позже даты редакции. Редакции одной даты с пересекающимися підставами = один шаг (компоненты связности), закон для имени ветки — уже имеющий ветку, иначе первый по номеру (числовой порядок); коллизия имён веток → суффикс `-2`.
 
 ### CLI (`jurik` через click)
 
 ```
 jurik fetch   [--code SLUG] [--refetch]      # карточки + редакции в cache/zakon/
-jurik rada    [--convocation N]              # открытые данные в cache/rada/
+jurik rada    [--convocation N] [--refetch]  # открытые данные в cache/rada/
 jurik parse   [--code SLUG] [--edition YYYYMMDD] [--all]   # парсинг + проверка полноты
-jurik build   [--code SLUG] [--linear] [--bills-limit N] [--out build/laws]
-jurik report                                 # report/coverage.md, report/parse-failures.md
-jurik export  [--at DATE] [--with-bills] --out build/dataset/
+jurik build   [--code SLUG ...] [--linear] [--bills-limit N] [--out build/laws]
+jurik report  [--code SLUG ...] [--repo build/laws]   # report/coverage.md, parse-failures.md
+jurik export  [--at YYYY-MM-DD] [--with-bills] [--repo build/laws] --out DIR
 ```
 
-Кеш никогда не очищается автоматически; `--refetch` принудительно перекачивает. HTML в кеше хранится gzip-сжатым (Податковий один даёт ~2 ГБ сырого HTML).
+Кеш никогда не очищается автоматически; `--refetch` принудительно перекачивает (карточки `jurik fetch` обновляет при каждом запуске, редакции из кеша — только с `--refetch`). HTML в кеше хранится gzip-сжатым (Податковий один даёт ~2 ГБ сырого HTML).
 
 ## What Goes Where
 
@@ -393,7 +394,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - [x] `translit.slug(text, max_len=40)`: транслитерация по постановлению КМУ № 55 от 27.01.2010, нижний регистр, не-буквы → `-`, обрезка по границе слова; `translit.roman_to_int`
 - [x] `render(tree, slug) -> dict[path, bytes]`: пути по правилам раскладки (`NN-slug/` из номера уровня с индексом, `art-NNNN.md`, `art-NNNN-M.md`, `provisions.md`, `preamble.md`, `_meta.yaml`); для кодекса из двух zakon_id (КУпАП) рендер объединяет два дерева в одну папку
 - [x] содержимое статьи: `# Стаття N. Назва`, пустая строка, абзацы через пустую строку, файл заканчивается `\n`; `provisions.md` начинается заголовком уровня
-- [x] `_meta.yaml`: title, zakon_id(s), adopted, source_url, status, edition_date
+- [x] `_meta.yaml`: title, zakon_id(s), adopted, source_url, status (edition_date убрана при review, см. Task 13)
 - [x] `render` детерминирован: один и тот же tree → побайтно одинаковые файлы
 - [x] write tests: пути для статей 1, 39-1, 1000, 1308; `Глава 1-1` → `01-1-...`; `Розділ XIV` → `14-...`; slug с апострофом и длинным названием; `provisions.md`; детерминизм; `_meta.yaml` парсится обратно; КУпАП две части в одной папке
 - [x] run tests - must pass before next task
