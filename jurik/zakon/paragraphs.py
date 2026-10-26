@@ -107,6 +107,9 @@ _NOTE_RE = re.compile(r"\{[^{}]*\}")
 _FINAL = re.compile(
     r"^(?:ПРИКІНЦЕВІ|ПЕРЕХІДНІ)(?:\s+(?:ТА|І|Й)\s+(?:ПРИКІНЦЕВІ|ПЕРЕХІДНІ))?\s+ПОЛОЖЕННЯ\.?$"
 )
+# КУпАП розділ II: «I. ЗАГАЛЬНА ЧАСТИНА», «II. ОСОБЛИВА ЧАСТИНА» group chapters inside the
+# section, so they are a level of subsection rank (a ``part`` would swallow later sections)
+_SECTION_PART = re.compile(r"^(I|II)\.\s+((?:ЗАГАЛЬНА|ОСОБЛИВА)\s+ЧАСТИНА)$")
 _EXCLUDED_TITLE = re.compile(r"^(виключен[аоий]|виключено)\.?$", re.I)
 # unlabelled sub-heading inside a § right before an article: «2. Повне товариство»
 _GROUP = re.compile(r"^(\d+)\.\s+([А-ЯІЇЄҐ][^.;:,!?]{0,100})$")
@@ -163,6 +166,8 @@ def match_heading(text: str) -> tuple[UnitKind, str, str] | None:
         if not rest or _is_upper(rest):
             return "book", str(ORDINALS[m.group(1).lower()]), rest
         return None
+    if m := _SECTION_PART.match(text):
+        return "subsection", m.group(1), m.group(2)
     if m := _PART.match(text):
         rest = m.group(2).strip()
         if rest and not _is_upper(rest):
@@ -395,4 +400,29 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
 
     if not paras:
         warnings.warn("document text has no paragraphs", ParagraphWarning, stacklevel=2)
-    return paras
+    return _join_split_notes(paras)
+
+
+def _open_braces(text: str) -> int:
+    return text.count("{") - text.count("}")
+
+
+def _join_split_notes(paras: list[Para]) -> list[Para]:
+    """Glue a body paragraph ending in an unclosed ``{`` note to the body paragraph that
+    closes it (КУпАП 2009–2012: «… доходів громадян. { Кодекс доповнено статтею 186-3 згідно
+    із Законом» + «N 2992-12 від 04.02.93, … від 13.07.2000 }»), so the note is one inline
+    note that the tree strips."""
+    out: list[Para] = []
+    for p in paras:
+        prev = out[-1] if out else None
+        if (
+            prev is not None
+            and prev.kind == "body"
+            and p.kind == "body"
+            and _open_braces(prev.text) > 0
+            and _open_braces(p.text) < 0
+        ):
+            out[-1] = Para(f"{prev.text} {p.text}", "body", prev.anchor)
+            continue
+        out.append(p)
+    return out

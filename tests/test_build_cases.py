@@ -22,6 +22,8 @@ LAND = "2768-14_ed20261016_build_fragment.html"
 LABOUR = "322-08_ed19960723_build_fragment.html"
 ADMIN_PROCEDURE = "2747-15_ed20170101_build_fragment.html"
 CRIMINAL = "2341-14_ed20260918_build_fragment.html"
+KUPAP_PARTS = "80731-10_ed20170507_build_fragment.html"
+KUPAP_NOTE = "80731-10_ed20120119_build_fragment.html"
 
 
 def paras_of(name: str) -> list[Para]:
@@ -205,3 +207,35 @@ def test_criminal_two_level_article_index():
 def test_normalize_two_level_superscript_index():
     assert normalize_text("Стаття 96 - 10-1 . Назва") == "Стаття 96-10-1. Назва"
     assert normalize_text("Стаття 39 - 1 . Назва") == "Стаття 39-1. Назва"
+
+
+def test_kupap_note_split_across_paragraphs_is_stripped():
+    # «… доходів громадян. { Кодекс доповнено статтею 186-3 згідно із Законом» +
+    # «N 2992-12 від 04.02.93, … від 13.07.2000 }»: 41 words were missing
+    paras = paras_of(KUPAP_NOTE)
+    joined = [p for p in paras if "Кодекс доповнено статтею 186-3" in p.text]
+    assert len(joined) == 1 and joined[0].text.endswith("від 13.07.2000 }")
+    tree = tree_of(paras, "80731-10")
+    art = next(a for a in articles(tree) if a.number == "186-3")
+    assert "{" not in art.body and "2992-12" not in art.body
+    assert art.body.endswith("неоподатковуваних мінімумів доходів громадян.")
+    res = verify_paragraphs(paras, render(tree, Code("admin-offences", ("80731-10",), "КУпАП")))
+    assert res.ok, res.missing[:5]
+
+
+def test_kupap_general_and_special_part_inside_section():
+    # «II. ОСОБЛИВА ЧАСТИНА» was glued to the end of article 40-1
+    paras = paras_of(KUPAP_PARTS)
+    tree = tree_of(paras, "80731-10")
+    section = next(u for u in tree.units if isinstance(u, Unit) and u.number == "II")
+    parts = [u for u in section.children if isinstance(u, Unit)]
+    assert [(u.kind, u.number, u.title) for u in parts] == [
+        ("subsection", "I", "ЗАГАЛЬНА ЧАСТИНА"),
+        ("subsection", "II", "ОСОБЛИВА ЧАСТИНА"),
+    ]
+    assert all("ЧАСТИНА" not in a.body for a in articles(tree))
+    files = render(tree, Code("admin-offences", ("80731-10",), "КУпАП"))
+    special = next(p for p in files if p.endswith("/02-osoblyva-chastyna/provisions.md"))
+    assert files[special].decode().startswith("# II. ОСОБЛИВА ЧАСТИНА")
+    res = verify_paragraphs(paras, files)
+    assert res.ok, res.missing[:5]

@@ -70,7 +70,8 @@ def unit_heading(unit: Unit) -> str:
     title = unit.title.strip()
     if not unit.number or (unit.kind == "part" and "частина" in title.lower()):
         return f"# {title}"
-    if unit.kind == "group":  # "# 2. Повне товариство", as in the source
+    if unit.kind == "group" or (unit.kind == "subsection" and title.endswith("ЧАСТИНА")):
+        # "# 2. Повне товариство", КУпАП "# II. ОСОБЛИВА ЧАСТИНА", as in the source
         return f"# {unit.number}. {title}"
     number = BOOK_ORDINAL.get(unit.number, unit.number) if unit.kind == "book" else unit.number
     head = f"{UNIT_LABEL[unit.kind]} {number}"
