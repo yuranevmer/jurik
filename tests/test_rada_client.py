@@ -56,7 +56,9 @@ def test_convocation_files_csv_and_billinfo():
     names9 = dict(convocation_files(9))
     assert names9[BILLINFO] == "https://data.rada.gov.ua/ogd/zpr/skl9/billinfo-skl9.zip"
     assert "bills_main-skl9.csv" not in names9
-    assert names9["plenary_agenda-skl9.csv"].startswith("https://data.rada.gov.ua/ogd/zal/ppz/skl9/")
+    assert names9["plenary_agenda-skl9.csv"].startswith(
+        "https://data.rada.gov.ua/ogd/zal/ppz/skl9/"
+    )
     with pytest.raises(RadaError):
         convocation_files(2)
 
@@ -96,6 +98,41 @@ def test_retry_on_503(tmp_path):
     assert client.get("https://data.rada.gov.ua/x.csv") == CSV
     assert len(calls) == 2
     assert sleeps == [5.0]
+
+
+def test_retry_on_transport_error(tmp_path):
+    state = {"n": 0}
+
+    def handler(request):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise httpx.ConnectError("refused", request=request)
+        if state["n"] == 2:
+            raise httpx.ReadTimeout("slow", request=request)
+        return httpx.Response(200, content=CSV)
+
+    client, calls, sleeps = make_client(tmp_path, handler, min_interval=0)
+    assert client.get("https://data.rada.gov.ua/x.csv") == CSV
+    assert len(calls) == 3
+    assert sleeps == [5.0, 10.0]
+
+
+def test_gives_up_after_retries(tmp_path):
+    client, calls, sleeps = make_client(tmp_path, lambda r: httpx.Response(503), min_interval=0)
+    with pytest.raises(RadaError, match=r"after 4 attempts \(HTTP 503\)"):
+        client.get("https://data.rada.gov.ua/x.csv")
+    assert len(calls) == 4
+    assert sleeps == [5.0, 10.0, 20.0]
+
+
+def test_request_passes_headers(tmp_path):
+    def handler(request):
+        assert request.headers["X-File-Id"] == "7"
+        return httpx.Response(200, content=b"x", headers={"Size": "1"})
+
+    client, _, _ = make_client(tmp_path, handler)
+    resp = client.request("https://data.rada.gov.ua/d", headers={"X-File-Id": "7"})
+    assert resp.headers["Size"] == "1"
 
 
 def test_404_html_not_cached(tmp_path):

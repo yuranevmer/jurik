@@ -25,6 +25,8 @@ from pathlib import Path
 
 import httpx
 
+from jurik.http import ThrottledHttp, write_atomic
+
 BASE_URL = "https://data.rada.gov.ua"
 USER_AGENT = "OpenData"
 CONVOCATIONS = range(3, 10)
@@ -96,17 +98,16 @@ class RadaClient:
     ) -> None:
         self.cache_dir = Path(cache_dir) / "rada"
         self.refetch = refetch
-        self.min_interval = min_interval
-        self.retries = retries
-        self.backoff = backoff
-        self._sleep = sleep
-        self._clock = clock
-        self._last_request: float | None = None
-        self._http = httpx.Client(
-            headers={"User-Agent": USER_AGENT},
+        self._http = ThrottledHttp(
+            user_agent=USER_AGENT,
+            error=RadaError,
+            min_interval=min_interval,
+            retries=retries,
+            backoff=backoff,
             timeout=timeout,
-            follow_redirects=False,
             transport=transport,
+            sleep=sleep,
+            clock=clock,
         )
 
     def close(self) -> None:
@@ -121,9 +122,7 @@ class RadaClient:
     def path(self, n: int, name: str) -> Path:
         return self.cache_dir / f"skl{n}" / cache_name(name)
 
-    def fetch_convocation(
-        self, n: int, *, echo: Callable[[str], None] | None = None
-    ) -> list[Path]:
+    def fetch_convocation(self, n: int, *, echo: Callable[[str], None] | None = None) -> list[Path]:
         """Download all files of convocation ``n`` into the cache; return cached paths."""
         paths = []
         for name, url in convocation_files(n):
@@ -139,46 +138,17 @@ class RadaClient:
             paths.append(path)
         return paths
 
-    def _throttle(self) -> None:
-        if self._last_request is not None:
-            wait = self.min_interval - (self._clock() - self._last_request)
-            if wait > 0:
-                self._sleep(wait)
-        self._last_request = self._clock()
-
     def get(self, url: str) -> bytes:
         """GET with rate limit and retries on 5xx/timeouts/transport errors."""
         return self.request(url).content
 
     def request(self, url: str, headers: dict[str, str] | None = None) -> httpx.Response:
         """``get`` returning the whole response (headers included); non-200 → ``RadaError``."""
-        last_error = ""
-        for attempt in range(self.retries + 1):
-            if attempt:
-                self._sleep(self.backoff * 2 ** (attempt - 1))
-            self._throttle()
-            try:
-                resp = self._http.get(url, headers=headers)
-            except httpx.TimeoutException as e:
-                last_error = f"timeout: {e}"
-                continue
-            except httpx.TransportError as e:
-                last_error = f"transport error: {e}"
-                continue
-            if resp.status_code >= 500:
-                last_error = f"HTTP {resp.status_code}"
-                continue
-            if resp.status_code != 200:
-                raise RadaError(f"{url}: HTTP {resp.status_code}")
-            return resp
-        raise RadaError(f"{url}: failed after {self.retries + 1} attempts ({last_error})")
+        return self._http.get(url, headers=headers)
 
 
 def write_cached(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_bytes(data if path.suffix == ".zip" else gzip.compress(data, mtime=0))
-    tmp.replace(path)
+    write_atomic(path, data if path.suffix == ".zip" else gzip.compress(data, mtime=0))
 
 
 def read_cached(path: Path) -> bytes:

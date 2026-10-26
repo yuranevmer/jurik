@@ -5,7 +5,6 @@ import httpx
 import pytest
 
 from jurik.zakon.http import (
-    BROWSER_UA,
     OPENDATA_UA,
     ZakonClient,
     ZakonError,
@@ -66,21 +65,10 @@ def test_opendata_urls_and_paths(tmp_path):
     )
 
 
-def test_zakon_source_urls_and_paths(tmp_path):
-    c = ZakonClient(tmp_path, source="zakon")
-    assert c.card_url("2947-14") == "https://zakon.rada.gov.ua/laws/card/2947-14"
-    assert c.edition_url("2947-14", "20020110") == (
-        "https://zakon.rada.gov.ua/laws/show/2947-14/ed20020110/print"
-    )
-    assert c.card_path("2947-14").name == "card.html.gz"
-    assert c.edition_path("2947-14", "20020110").name == "ed20020110.print.html.gz"
-
-
-@pytest.mark.parametrize(("source", "ua"), [("opendata", OPENDATA_UA), ("zakon", BROWSER_UA)])
-def test_user_agent(tmp_path, source, ua):
-    client, calls, _ = make_client(tmp_path, lambda r: httpx.Response(200, text=DOC), source=source)
+def test_user_agent(tmp_path):
+    client, calls, _ = make_client(tmp_path, lambda r: httpx.Response(200, text=DOC))
     client.get("https://example/x")
-    assert calls[0].headers["user-agent"] == ua
+    assert calls[0].headers["user-agent"] == OPENDATA_UA
 
 
 def test_cache_miss_then_hit(tmp_path):
@@ -136,13 +124,59 @@ def test_card_invalid_json_not_cached(tmp_path):
     assert not (tmp_path / "zakon" / "2947-14" / "card.json.gz").exists()
 
 
+def test_card_cached_unless_refresh(tmp_path):
+    path = tmp_path / "zakon" / "2947-14" / "card.json.gz"
+    write_gz(path, '{"old": 1}')
+    new = json.dumps({"nreg": "2947-14", "eds": []})
+    client, calls, _ = make_client(tmp_path, lambda r: httpx.Response(200, text=new))
+    assert client.card("2947-14") == '{"old": 1}'
+    assert calls == []
+    assert client.card("2947-14", refresh=True) == new
+    assert len(calls) == 1
+    assert read_gz(path) == new
+
+
+def test_card_refresh_invalid_json_keeps_cache(tmp_path):
+    path = tmp_path / "zakon" / "2947-14" / "card.json.gz"
+    write_gz(path, '{"old": 1}')
+    client, _, _ = make_client(tmp_path, lambda r: httpx.Response(200, text="<html>" + "x" * 60000))
+    with pytest.raises(ZakonError, match="invalid JSON"):
+        client.card("2947-14", refresh=True)
+    assert read_gz(path) == '{"old": 1}'
+
+
 def test_retry_on_503(tmp_path):
     responses = iter([httpx.Response(503), httpx.Response(502), httpx.Response(200, text=DOC)])
     client, calls, t = make_client(tmp_path, lambda r: next(responses))
     assert client.edition("2947-14", "20020110") == DOC
     assert len(calls) == 3
-    # exponential backoff 2s, 4s
-    assert 2.0 in t.sleeps and 4.0 in t.sleeps
+    # exponential backoff 2s, 4s; after the 2s backoff the 2.5s interval still needs 0.5s
+    assert t.sleeps == [2.0, 0.5, 4.0]
+
+
+def test_retry_on_transport_error(tmp_path):
+    state = {"n": 0}
+
+    def handler(request):
+        state["n"] += 1
+        if state["n"] == 1:
+            raise httpx.ConnectError("refused", request=request)
+        return httpx.Response(200, text=DOC)
+
+    client, calls, t = make_client(tmp_path, handler)
+    assert client.edition("2947-14", "20020110") == DOC
+    assert len(calls) == 2
+    assert t.sleeps == [2.0, 0.5]
+
+
+def test_transport_error_gives_up(tmp_path):
+    def handler(request):
+        raise httpx.ConnectError("refused", request=request)
+
+    client, calls, _ = make_client(tmp_path, handler, retries=1)
+    with pytest.raises(ZakonError, match=r"after 2 attempts \(transport error: refused\)"):
+        client.get("https://example/x")
+    assert len(calls) == 2
 
 
 def test_retry_on_timeout(tmp_path):
@@ -188,10 +222,10 @@ def test_client_error_not_cached_not_retried(tmp_path, status):
     ],
 )
 def test_error_page_not_cached(tmp_path, body):
-    client, _, _ = make_client(tmp_path, lambda r: httpx.Response(200, text=body), source="zakon")
+    client, _, _ = make_client(tmp_path, lambda r: httpx.Response(200, text=body))
     with pytest.raises(ZakonError):
         client.edition("2947-14", "20020110")
-    assert not (tmp_path / "zakon" / "2947-14" / "ed20020110.print.html.gz").exists()
+    assert not (tmp_path / "zakon" / "2947-14" / "ed20020110.html.gz").exists()
 
 
 def test_long_document_mentioning_marker_is_not_error():

@@ -8,6 +8,7 @@ from jurik.rada.billtext import (
     billinfo_documents,
     csv_documents,
     detect,
+    file_stem,
     is_text_type,
     paragraphs_from_lines,
     rtf_to_markdown,
@@ -205,3 +206,133 @@ def test_fetch_doc_is_cached_but_unavailable(tmp_path, rada_cache, bill_fixture)
     assert texts.cached(BillRef(5, "0903")).name == "0903.doc"
     assert texts.fetch(BillRef(5, "0903")) is None
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("number", "stem"),
+    [
+        ("0903", "0903"),
+        ("15112-д", "15112-д"),
+        (" 3029-д ", "3029-д"),
+        ("1234/1", "1234_1"),
+        ("1..2", "1..2"),
+        ("..", "__"),
+        ("../../etc", "___.._etc"),
+        ("..\\x", "___x"),
+        (".hidden", "_hidden"),
+        ("a\x00b", "a_b"),
+        ("", "_"),
+        ("   ", "_"),
+    ],
+)
+def test_file_stem(number, stem):
+    assert file_stem(number) == stem
+
+
+@pytest.mark.parametrize("number", ["..", "../x", "..\\x", "/abs", ".", ""])
+def test_file_stem_stays_in_folder(tmp_path, number):
+    folder = tmp_path / "9"
+    path = (folder / f"{file_stem(number)}.pdf").resolve()
+    assert path.parent == folder.resolve()
+    assert not path.name.startswith(".")
+
+
+def ix_texts(tmp_path, rada_cache, handler):
+    messages = []
+    texts, calls = make_texts(tmp_path, rada_cache, handler)
+    texts._echo = messages.append
+    return texts, calls, messages
+
+
+def assert_nothing_cached(rada_cache):
+    folder = rada_cache / "rada" / "bills" / "9"
+    assert not folder.exists() or list(folder.iterdir()) == []
+
+
+def test_fetch_ix_size_mismatch(tmp_path, rada_cache, bill_fixture):
+    data = bill_fixture("pdf")
+
+    def handler(request):
+        chunk = int(request.headers["X-Current-Chunk"])
+        part = data[:1000] if chunk == 0 else b""  # the server stops early
+        return httpx.Response(200, content=part, headers={"Size": str(len(data))})
+
+    texts, calls, messages = ix_texts(tmp_path, rada_cache, handler)
+    assert texts.fetch(BillRef(9, "15112-д")) is None
+    assert len(calls) == 2
+    assert f"got 1000 of {len(data)} bytes" in messages[0]
+    assert messages[0].startswith("warning: bill 9/15112-д")
+    assert_nothing_cached(rada_cache)
+
+
+def test_fetch_ix_short_last_chunk_overshoot(tmp_path, rada_cache, bill_fixture):
+    data = bill_fixture("pdf")
+
+    def handler(request):  # announced size smaller than what was sent
+        return httpx.Response(200, content=data, headers={"Size": str(len(data) - 1)})
+
+    texts, _, messages = ix_texts(tmp_path, rada_cache, handler)
+    assert texts.fetch(BillRef(9, "15112-д")) is None
+    assert f"got {len(data)} of {len(data) - 1} bytes" in messages[0]
+    assert_nothing_cached(rada_cache)
+
+
+def test_fetch_ix_no_size_header_single_chunk(tmp_path, rada_cache, bill_fixture):
+    data = bill_fixture("pdf")
+
+    def handler(request):
+        assert request.headers["X-Current-Chunk"] == "0"
+        return httpx.Response(200, content=data)
+
+    texts, calls, messages = ix_texts(tmp_path, rada_cache, handler)
+    assert "ЗАКОН УКРАЇНИ" in texts.fetch(BillRef(9, "15112-д"))
+    assert len(calls) == 1
+    assert messages == []
+    assert (rada_cache / "rada" / "bills" / "9" / "15112-д.pdf").read_bytes() == data
+
+
+def test_fetch_ix_empty_first_chunk(tmp_path, rada_cache):
+    def handler(request):
+        return httpx.Response(200, content=b"", headers={"Size": "0"})
+
+    texts, calls, messages = ix_texts(tmp_path, rada_cache, handler)
+    assert texts.fetch(BillRef(9, "15112-д")) is None
+    assert len(calls) == 1
+    assert messages == ["warning: bill 9/15112-д: empty document"]
+    assert_nothing_cached(rada_cache)
+
+
+def test_fetch_ix_undetectable_document(tmp_path, rada_cache):
+    def handler(request):  # whitespace only: detect() is None
+        return httpx.Response(200, content=b"  \n ", headers={"Size": "4"})
+
+    texts, _, messages = ix_texts(tmp_path, rada_cache, handler)
+    assert texts.fetch(BillRef(9, "15112-д")) is None
+    assert messages == ["warning: bill 9/15112-д: empty document"]
+    assert_nothing_cached(rada_cache)
+
+
+@pytest.mark.parametrize(("convocation", "missing"), [(9, "billinfo-skl9"), (5, "bills_")])
+def test_fetch_without_open_data_warns_once(tmp_path, convocation, missing):
+    def handler(request):
+        raise AssertionError("no request expected")
+
+    cache = tmp_path / "empty-cache"
+    messages = []
+    texts, calls = make_texts(tmp_path, cache, handler)
+    texts._echo = messages.append
+    assert texts.fetch(BillRef(convocation, "1")) is None
+    assert texts.fetch(BillRef(convocation, "2")) is None
+    assert calls == []
+    assert len(messages) == 1
+    assert messages[0].startswith(f"warning: bill texts of convocation {convocation}:")
+    assert missing in messages[0] and "not cached" in messages[0]
+    assert not (cache / "rada" / "bills").exists()
+
+
+def test_fetch_without_open_data_uses_cached_text(tmp_path, bill_fixture):
+    folder = tmp_path / "rada" / "bills" / "5"
+    folder.mkdir(parents=True)
+    (folder / "0903.rtf").write_bytes(bill_fixture("rtf"))
+    texts = BillTexts(tmp_path)
+    assert "Сімейного кодексу" in texts.fetch(BillRef(5, "0903"))

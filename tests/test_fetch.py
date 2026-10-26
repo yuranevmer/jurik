@@ -36,12 +36,12 @@ def make_handler(calls, *, fail=frozenset()):
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         calls.append(path)
+        if any(path.endswith(f) for f in fail):
+            return httpx.Response(404)
         if path.startswith("/laws/card/"):
             nreg = path.removeprefix("/laws/card/").removesuffix(".json")
             if nreg in CARDS:
                 return httpx.Response(200, text=CARDS[nreg])
-            return httpx.Response(404)
-        if any(path.endswith(f) for f in fail):
             return httpx.Response(404)
         return httpx.Response(200, text=DOC)
 
@@ -82,8 +82,39 @@ def test_fetch_second_run_uses_cache(tmp_path):
     fetch_code(code, client, echo=lambda s: None, today=TODAY)
     calls.clear()
     res = fetch_code(code, client, echo=lambda s: None, today=TODAY)
-    assert calls == []
+    assert calls == ["/laws/card/1-01.json"]  # only the card is refreshed
     assert (res.downloaded, res.cached) == (0, 3)
+
+
+def test_fetch_refreshes_cached_card(tmp_path):
+    calls: list[str] = []
+    client = make_client(tmp_path, calls)
+    write_gz(client.card_path("1-01"), card_json("1-01", [20020110]))
+    write_gz(client.edition_path("1-01", "20020110"), "cached text")
+    res = fetch_code(Code("t", ("1-01",), "Тестовий"), client, echo=lambda s: None, today=TODAY)
+    assert res.ok
+    # the fresh card lists two more current editions; the cached one is not downloaded again
+    assert (res.downloaded, res.cached) == (2, 1)
+    assert calls == [
+        "/laws/card/1-01.json",
+        "/laws/show/1-01/ed20050101",
+        "/laws/show/1-01/ed20100101",
+    ]
+    assert read_gz(client.card_path("1-01")) == CARDS["1-01"]
+    assert read_gz(client.edition_path("1-01", "20020110")) == "cached text"
+
+
+def test_fetch_card_refresh_failure_uses_cached_card(tmp_path):
+    calls: list[str] = []
+    client = make_client(tmp_path, calls, fail={"1-01.json"})
+    cached = card_json("1-01", [20020110])
+    write_gz(client.card_path("1-01"), cached)
+    out: list[str] = []
+    res = fetch_code(Code("t", ("1-01",), "Тестовий"), client, echo=out.append, today=TODAY)
+    assert res.ok
+    assert res.downloaded == 1
+    assert any("warning: card refresh failed, using cached card" in line for line in out)
+    assert read_gz(client.card_path("1-01")) == cached
 
 
 def test_fetch_refetch_redownloads(tmp_path):

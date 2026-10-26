@@ -288,8 +288,20 @@ def to_markdown(data: bytes) -> str | None:
 # --- downloading --------------------------------------------------------------------------
 
 
+_UNSAFE_STEM = re.compile(r"[/\\\x00-\x1f\x7f]")
+
+
 def file_stem(number: str) -> str:
-    return number.strip().replace("/", "_")
+    """File name stem of a bill text in ``<cache>/rada/bills/<conv>/``.
+
+    Path separators and control characters become ``_``, leading dots become ``_`` (no
+    hidden files, no ``..``) and an empty number becomes ``_``, so the file always stays
+    inside the convocation folder. Ordinary numbers (digits, letters, ``-``) are unchanged:
+    existing cache files are named by this stem.
+    """
+    stem = _UNSAFE_STEM.sub("_", number.strip())
+    dots = len(stem) - len(stem.lstrip("."))
+    return ("_" * dots + stem[dots:]) or "_"
 
 
 class BillTexts:
@@ -308,6 +320,7 @@ class BillTexts:
         self._client = client
         self._echo = echo or (lambda _msg: None)
         self._docs: dict[int, dict[str, BillDoc]] = {}
+        self._no_docs: set[int] = set()  # convocations whose document list is unavailable
 
     def _http(self) -> RadaClient:
         if self._client is None:
@@ -371,7 +384,14 @@ class BillTexts:
     def fetch(self, bill: BillRef) -> str | None:
         path = self.cached(bill)
         if path is None:
-            doc = self.document(bill)
+            if bill.convocation in self._no_docs:
+                return None
+            try:
+                doc = self.document(bill)
+            except RadaError as e:
+                self._no_docs.add(bill.convocation)
+                self._echo(f"warning: bill texts of convocation {bill.convocation}: {e}")
+                return None
             if doc is None:
                 return None
             try:
