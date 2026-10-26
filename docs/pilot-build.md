@@ -188,3 +188,120 @@ basis 4196-20 = Закон № 4196-IX від 09.01.2025). The build commits the
   only by the word check, which cannot see text placed at the wrong level.
 - The variant file name `art-NNNN_2.md` is new in the layout; it appears only in КАС
   editions 2016-06-18 … 2017-08-03.
+
+# Acceptance checks (Task 18)
+
+Date: 2026-10-26, on the final `build/laws` (`--bills-limit 500`) described above.
+
+| Check | Result |
+|---|---|
+| Commit and branch counts | **pass** |
+| `git log --follow` on Податковий ст. 14 | **pass** |
+| `export --at 2015-01-01` vs. zakon text (Сімейний, Податковий) | **pass** |
+| Manual sample of 20 merge commits | 13 match, 6 partial, **1 mismatch** (attribution, see below) |
+| Branch diff vs. its base / vs. its merge | **pass** (5 sampled by hand; all 1547 by script) |
+| `uv run pytest`, `uv run ruff check` | **pass** (402 passed, 1 deselected; ruff clean) |
+
+## Counts
+
+- `git rev-list --first-parent --count main` = **1808** = plan steps on `main` (25 initial +
+  1548 law + 227 multiple + 4 court + 3 unknown + 1 repealed), same as `report/coverage.md`
+  («1808 commits in `--first-parent main`»).
+- Merges on `--first-parent main`: 1775 = 1548 + 227 law/multiple steps; 1775 − 228 later
+  `Stage:` re-merges = 1547 distinct merged branches.
+- `bill/*`: **2047** = 1547 merged (`for-each-ref --merged=main`, one per law or multi-basis
+  group, 25 of them `bill/law/*`) + 500 without merge (`--no-merged=main`, the capped not
+  adopted bills); `report/coverage.md`: «2047 (1547 merged, 500 without merge)».
+- All commits: 4083.
+
+## `git log --follow`
+
+`codes/tax/01-zahalni-polozhennia/art-0014.md`: 72 commits with `--follow`, 72 on
+`--first-parent`. Each `main` entry is a merge titled «Закон № N-IX: <title>» or «Закони
+№ …, № … (Податковий кодекс України)» with `Law:`/`Bill:`/`In-force:`/`Stage:`/`Reason:`/
+`Edition:`/`Source:` trailers; without `--first-parent` the branch commits show «Законопроект
+№ N: <title>». Note that `%ad` (adoption date) is not monotonic along `--first-parent`
+(e.g. a 2024-06-18 law merged after one adopted 2024-12-04): `main` is ordered by `In-force:`,
+as designed.
+
+## Export on 2015-01-01
+
+`uv run jurik export --at 2015-01-01 --repo build/laws --out <scratch>` → commit `96f7e52247`
+(In-force 2015-01-01), 8678 files of 23 codes (no Виборчий 2019 or КУзПБ 2018 yet;
+`commercial` is present). Check (c) reads `main` only, so the exported files were checked with
+`jurik.verify.verify_edition` against the cached edition in force on that date:
+
+| Code | Edition in force on 2015-01-01 | Files | Result |
+|---|---|---:|---|
+| Сімейний | `2947-14/ed20141026` | 318 | ok, 25879 words |
+| Податковий | `2755-17/ed20150101` | 322 | ok, 204514 words |
+
+Negative control: the same files against the next editions (`ed20150926`, `ed20150117`) fail
+(59 and 1179 words missing), so the check does tell editions apart.
+
+## Manual sample: 20 merge commits
+
+`random.seed(20261026); random.sample(git rev-list --first-parent --merges main, 20)`. For
+each, the merge's change set (`git diff M^1 M`) was compared with the text of the amending law
+from `https://data.rada.gov.ua/laws/show/<nreg>.txt` (`User-Agent: OpenData`, 2 s between
+requests). «Editorial» = a file whose only change is zakon's own editing, not the law:
+inserted cross-reference links «( 1103-2011-п )», typo fixes, leftover note fragments.
+
+| Commit | Law(s) | Codes / files | What the law amends | Verdict |
+|---|---|---|---|---|
+| `f921d2368` | 3219-IX | tax, 9 | ст. 102, 165, 170, 172, 186; XX підр. 4, 5, 8, 10 | match |
+| `5e029f982` | 1344-IV (budget 2004) | forest, subsoil, water, 6 | suspends ЛК ст. 91, КпН ст. 16, 31, 33, 34, ВК ст. 32 (ст. 80 of the law) | match |
+| `f7480c326` | 1423-IX + 552-IX, Stage 3 | land, 10 | 552: ст. 37-1, 130, 131, 143, 145, перехідні; 1423: ст. 22, 135, 137, … | partial: multi-basis + staged (approach A, by design) |
+| `e8f4b3064` | 2328-VI | civil, 1 | ст. 988 | match |
+| `fa5d8aec2` | 2849-IX (Про медіа) | 10 codes, 35 | КАС 19, 20, 272, 275, +289-4, перехідні; ЗК 92; ВК 57; ПК 96; text-wide «засоби масової інформації» → «медіа» in ЦК, ЗК, ГПК, ЦПК, КВК, КЦЗ, КАС, ГК | match |
+| `13dd47560` | 177-IV | admin-offences, 1 | ст. 203 | match |
+| `2ba9ee3e6` | 1561-VII | tax, 1 | XX підр. 2 п. 32 | match |
+| `526399cfc` | 922-VIII, Stage 1 | 5 codes, only `_meta.yaml` | law in force 2016-02-19, «вводиться в дію» 6 months later; text changes are in Stage 2/3 (`793fa6dc6` 2016-04-01, `674b99001` 2016-08-01) | partial: staged law, stage 1 has no text change (by design) |
+| `d8d432823` | 1878-VI + 5042-VI, Stage 2 | civil, 21 | 1878: ст. 182, 191, 331, 334, 364, 640, 657, 732, 745, 794, 1031; 5042: ст. 110, 198 | partial: multi-basis (by design); plus 7 editorial files (ст. 159–163, 180, 195: links «( 514-17 )») and ст. 338 typo «своє»→«свої» |
+| `a2485cce5` | 3035-IX + 3278-IX + 3460-IX, Stage 2 | budget, 14 | three laws; e.g. +ст. 24-6 from 3035-IX | partial: multi-basis + staged (by design) |
+| `a4b687da3` | 4824-IX | civil, family, 5 | ЦК ст. 31, 32, 71; СК ст. 65, 177 | match |
+| `160b65454` | 2350-III | admin-offences, 170 (13 deleted, 2 added) | ст. 80, 81, 121–133, 221, 222, … (≈ 20 articles) | **mismatch** (attribution): the diff also carries 2342-III, 2359-III, 2360-III, 2362-III, 2372-III (card `hist` event 2001-04-05 with **no edition**; e.g. ст. 1 «в редакції Закону N 2342-III»), which have no commit of their own; the message names only 2350-III |
+| `7b5de5f5e` | 887-VIII | admin-offences, 1 | ст. 212-3 | match |
+| `3a42d6721` | 4711-VI | labour, 23 | ст. 36, 41 (п. 2–3 of the law later repealed) | partial: 18 editorial files (links), ст. 65 / preamble stale note fragments removed, ст. 252-8 typo fixes |
+| `df4afe3c2` | 1555-VII | admin-procedure, commercial, 2 | КАС ст. 19; ГК ст. 26 (п. 4.1, now marked repealed by 4196-IX) | match |
+| `50d068643` | 2507-VIII | criminal-procedure, 1 | XI перехідні п. 20-3 | match |
+| `ee6601a44` | 2249-VIII | family, labour, 23 | КЗпП 42, 77-2, 83, 182-1 + text-wide «інвалід»; СК text-wide «інвалід» | match |
+| `0e9d7c30d` | 2136-IX | labour, 1 | XIX прикінцеві п. 2 | match |
+| `fa14f9dfa` | 2914-VI | labour, 1 | ст. 67 | match |
+| `33604f859` | 3741-VI | tax, 2 | XX підр. 2 п. 22 | partial: ст. 172 editorial (link «( 1103-2011-п )» inserted) |
+
+Summary: **13 match, 6 partial** (4 by design: multi-basis/staged — `f7480c326`,
+`526399cfc`, `d8d432823`, `a2485cce5`; 2 editorial noise from zakon re-editing —
+`3a42d6721`, `33604f859`), **1 mismatch** (`160b65454`, attribution). No commit touched an
+article the law does not amend except through editorial edits.
+
+### Finding: amendment events without an edition (mismatch `160b65454`)
+
+zakon cards list amendment events (`hist`) for which no edition was published (`eds`). Their
+text changes appear in the next edition, so the edition-to-edition diff is correct, but the
+commit names only the next edition's basis. Across all cards, 11 such events between the first
+and last edition carry 12 laws that appear in no `Source:` trailer of `main` (КУпАП 80731-10
+and 80732-10: 3 events each, КпН, КТМ, ГПК, ВК, ЛК: 1 each). Not fixed here: attributing the
+folded laws means turning such commits into multi-basis steps (`Law:` trailers, branches,
+merges), a change to the plan builder rather than a contained bug. Follow-up: in `plan_full`,
+add the laws of edition-less `hist` events before an edition to that edition's step.
+
+## Branch diffs
+
+`random.seed(18); random.sample(merged bill/* branches, 5)`; `git diff <branch>^ <branch>`
+compared with the law text:
+
+| Branch | Law | Files | Verdict |
+|---|---|---|---|
+| `bill/6/2503` | 2430-VI | КУпАП ст. 218, 255 | match |
+| `bill/6/0866` | 1878-VI + 5042-VI, Stage 2 | ЦК, 21 files | = merge `d8d432823` above (multi-basis, partial by design) |
+| `bill/9/6173` | 2801-IX | ЦК, ГПК, ЦПК, КАС, КУзПБ, Виборчий (75 paths incl. `_meta.yaml`) | match (items 1–6 of the law, text-wide replacement in КАС) |
+| `bill/8/5181` | 1800-VIII | Бюджетний ст. 17, 22, 23, 33, 37, 38 | match |
+| `bill/7/4448a` | 1689-VII | КК 15 paths, КПК 25 paths incl. `_meta.yaml` (глава 24-1 = ст. 297-1…297-5) | match |
+
+Equality with the merge's own change set, for **all 1547** merged branch tips (script,
+comparing `(path, new blob)` of `git diff tip^ tip` and `git diff M^1 M`): 1516 identical;
+31 differ only by paths that are no-ops at the older branch base (the base already had the
+new blob, or the deleted path did not exist yet), so the branch diff is the merge's change
+set minus no-ops in every case. The branch base equals the merge's first parent in only 40
+cases (branches start at `main` on the registration date, as designed).
