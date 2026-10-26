@@ -126,6 +126,16 @@ def test_duplicate_edition_is_a(tmp_path):
     assert any("ed20020110 has In-force 2005-03-01" in m for m in messages)
 
 
+def test_edition_going_back_is_a(tmp_path):
+    steps = plan(plan_linear)
+    a, b = "Edition: 2947-14/ed20050301", "Edition: 2947-14/ed20100701"
+    steps[1].message = steps[1].message.replace(a, b)
+    steps[2].message = steps[2].message.replace(b, a)
+    repo = build(tmp_path, steps)
+    messages = [v.message for v in check_repo(repo, steps, PRINTS)]
+    assert any(m.endswith("edition 2947-14/ed20050301 after 2947-14/ed20100701") for m in messages)
+
+
 def test_corrupted_file_is_c(tmp_path):
     steps = plan()
     last = steps[-1]

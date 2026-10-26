@@ -351,3 +351,17 @@ bankruptcy and 4952-IX + 4963-IX for land on 2026-10-01) are now one step instea
 2011-09-16; Митний 2012-06-01; КПК 2012-11-19; КЦЗ 2012-11-21; КУзПБ 2019-04-21; Виборчий
 2020-01-01; Лісовий 1994-04-13. Codes without an entry-into-force event after their first
 edition keep the edition date.
+
+## Review fixes: same-date step order (2026-10-26)
+
+Steps of one `In-force:` date are now put in order topologically: each document's
+editions go in edition order (its initial first), and a repeal comes after its code's editions.
+Groups that would each need the other first are merged into one step. Before, these steps were
+ordered by their earliest edition date. A step loading an older edition after a newer one is now
+a `BuildError` and no longer an empty commit. Invariant (a) also checks that the editions of each
+document along `--first-parent main` never go back. Rebuilt with
+`uv run jurik build --bills-limit 500` (491.6 s, all inputs cached): `check_repo`
+**0 violations**. The `--first-parent main` history is identical (1626 commits; same
+`In-force:`/`Edition:` trailers and subjects in the same order; tree of `main`
+`8f27b810c5` unchanged), and so are 3719 commits / 1959 branches / 1593 merges. The current data
+never hit the bad order, as the reviewer expected.

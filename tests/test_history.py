@@ -130,6 +130,72 @@ def test_kupap_folder_is_union_of_latest_parts():
     assert not steps[2].changes.deleted
 
 
+CIVIL = Code("civil", ("435-15",), "Цивільний кодекс України")
+ENTRY = date(2004, 1, 1)
+
+
+def _editions_never_go_back(steps):
+    last = {}
+    for s in steps:
+        if s.ref != "main":
+            continue
+        for e in s.editions:
+            assert last.get(e.zakon_id, date.min) <= e.date, (e, s.message)
+            last[e.zakon_id] = e.date
+
+
+def test_same_in_force_date_initial_before_shared_basis_step():
+    """A basis joins family's pre-entry edition (dated before civil's first edition) with a
+    later civil edition; all four are in force from 2004-01-01. Civil's initial must come
+    before the law step, or the law step adds the whole code and the initial is empty."""
+    load = Loader()
+    f1 = load.add(ed("2947-14", date(2002, 12, 1)), ("1", "сім'я"))
+    f2 = load.add(ed("2947-14", date(2003, 1, 1), "100-15"), ("1", "сім'я 2"))
+    c1 = load.add(ed("435-15", date(2003, 1, 16)), ("1", "цивільний"), ("2", "два"))
+    c2 = load.add(ed("435-15", ENTRY, "100-15"), ("1", "цивільний"), ("2", "нове"))
+    sources = [
+        CodeSource(FAMILY, {"2947-14": [f1, f2]}, in_force={"2947-14": ENTRY}),
+        CodeSource(CIVIL, {"435-15": [c1, c2]}, in_force={"435-15": ENTRY}),
+    ]
+    for steps in (plan_linear(sources, load), plan_full(sources, load)):
+        main = [s for s in steps if s.ref == "main"]
+        assert [(s.reason, s.codes) for s in main] == [
+            ("initial", ["family"]),
+            ("initial", ["civil"]),
+            ("law", ["family", "civil"]),
+        ]
+        assert all(s.date == ENTRY for s in main)
+        assert all(s.changes for s in main if s.editions)  # no empty commit with Edition:
+        assert "codes/civil/01-hlava-1/art-0002.md" in main[1].changes.modified
+        law = main[2].changes.modified
+        assert set(law) == {
+            "codes/family/01-hlava-1/art-0001.md",
+            "codes/civil/01-hlava-1/art-0002.md",
+        }  # only the amendments, not the whole civil code
+        _editions_never_go_back(steps)
+
+
+def test_same_in_force_date_cycle_becomes_one_step():
+    """Family a1 (basis P) < a2 (Q), civil b1 (Q) < b2 (P), all in force on one date:
+    {a1, b2} needs b1 first and {a2, b1} needs a1 first, so both are one step."""
+    load = Loader()
+    f0 = load.add(ed("2947-14", date(2002, 1, 1)), ("1", "a0"))
+    a1 = load.add(ed("2947-14", date(2002, 3, 1), "1-15"), ("1", "a1"))
+    a2 = load.add(ed("2947-14", date(2002, 9, 1), "2-15"), ("1", "a2"))
+    c0 = load.add(ed("435-15", date(2002, 1, 2)), ("1", "c0"))
+    b1 = load.add(ed("435-15", date(2002, 2, 1), "2-15"), ("1", "b1"))
+    b2 = load.add(ed("435-15", date(2002, 5, 1), "1-15"), ("1", "b2"))
+    sources = [
+        CodeSource(FAMILY, {"2947-14": [f0, a1, a2]}, in_force={"2947-14": ENTRY}),
+        CodeSource(CIVIL, {"435-15": [c0, b1, b2]}, in_force={"435-15": ENTRY}),
+    ]
+    steps = plan_linear(sources, load)
+    assert [s.reason for s in steps] == ["initial", "initial", "multiple"]
+    assert steps[2].editions == [b1, a1, b2, a2]
+    assert all(s.changes for s in steps)
+    _editions_never_go_back(steps)
+
+
 def test_repealed_code_deletes_folder_and_drops_later_editions():
     code = Code(
         "commercial",
@@ -741,3 +807,12 @@ def test_cached_tree_loader_missing_file_is_build_error(tmp_path):
         load = cached_tree_loader(client)
         with pytest.raises(BuildError, match="ed20020110"):
             load(ed("2947-14", date(2002, 1, 10)))
+
+
+def test_cached_tree_loader_truncated_gz_is_build_error(tmp_path):
+    with ZakonClient(tmp_path) as client:
+        path = client.edition_path("2947-14", "20020110")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(gzip.compress("<html>текст</html>".encode() * 50)[:-12])
+        with pytest.raises(BuildError, match="ed20020110"):
+            cached_tree_loader(client)(ed("2947-14", date(2002, 1, 10)))

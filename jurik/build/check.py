@@ -2,7 +2,8 @@
 
 (a) every edition of the plan is in exactly one commit of ``main`` (``Edition:`` trailer)
     and that commit's ``In-force:`` is the In-force date the plan gave it (the edition
-    date, or the document's entry into force for editions dated before it);
+    date, or the document's entry into force for editions dated before it); the editions
+    of each document along ``--first-parent main`` never go back to an older one;
 (b) ``In-force:`` along ``git log --first-parent main`` never decreases;
 (c) the ``main`` files of each code hold exactly the words of the print of its latest
     edition (:func:`jurik.verify.verify_edition`);
@@ -85,6 +86,7 @@ def check_editions(commits: Sequence[MainCommit], steps: Sequence[Step]) -> list
     """(a) every planned edition is in exactly one ``main`` commit with its In-force date."""
     expected = {edition_id(e): s.date for s in steps if s.ref == MAIN for e in s.editions}
     seen: Counter[str] = Counter()
+    last: dict[str, str] = {}  # zakon_id → latest edYYYYMMDD so far
     out: list[Violation] = []
     for c in commits:
         in_force = in_force_of(c)
@@ -92,6 +94,15 @@ def check_editions(commits: Sequence[MainCommit], steps: Sequence[Step]) -> list
             if key != "Edition":
                 continue
             seen[value] += 1
+            zakon_id, _, ed = value.rpartition("/")
+            if ed < last.get(zakon_id, ""):
+                out.append(
+                    Violation(
+                        "a", f"{c.sha[:10]}: edition {value} after {zakon_id}/{last[zakon_id]}"
+                    )
+                )
+            else:
+                last[zakon_id] = ed
             if value not in expected:
                 out.append(Violation("a", f"{c.sha[:10]}: edition {value} is not in the plan"))
             elif expected[value] != in_force:
@@ -129,7 +140,10 @@ def _main_files(repo: Path, prefix: str) -> dict[str, bytes]:
     data, files, pos = git(repo, "cat-file", "--batch", input=batch), {}, 0
     for path in paths:
         header_end = data.index(b"\n", pos)
-        size = int(data[pos:header_end].split()[2])
+        header = data[pos:header_end].split()
+        if len(header) != 3:
+            raise CheckError(f"git cat-file {MAIN}:{path}: {b' '.join(header).decode()}")
+        size = int(header[2])
         start = header_end + 1
         files[path] = data[start : start + size]
         pos = start + size + 1

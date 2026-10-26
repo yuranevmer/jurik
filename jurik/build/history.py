@@ -18,6 +18,8 @@ from bisect import bisect_right
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import date
+from heapq import heapify, heappop, heappush
+from itertools import groupby, pairwise
 from typing import Any, Literal, Protocol
 
 from jurik.build.changeset import ChangeSet, diff
@@ -184,7 +186,76 @@ def _grouped(events: list[_Event]) -> list[list[_Event]]:
         else:
             key = (ev.date, ev.order, ev.bases, ev.key)
         groups.setdefault(key, []).append(ev)
-    return list(groups.values())
+    out: list[list[_Event]] = []
+    for _, same_day in groupby(groups.values(), key=lambda g: g[0].date):
+        out += _ordered(list(same_day))
+    return out
+
+
+def _ordered(groups: list[list[_Event]]) -> list[list[_Event]]:
+    """Steps of one In-force date in an order that never takes a document back.
+
+    The clamp to the entry into force gives editions of several dates one In-force date,
+    and a basis can join an early edition of one document with a late one of another. The
+    editions of each document go in edition order (its initial first), the repeal of a code
+    after its editions; groups that would need each other first (a cycle) become one step.
+    Otherwise the order of the first events is kept.
+    """
+    n = len(groups)
+    if n < 2:
+        return groups
+    tracks: dict[str, list[tuple[tuple[date, int], int]]] = {}
+    for i, g in enumerate(groups):
+        for ev in g:
+            if ev.edition is not None:
+                tracks.setdefault(ev.edition.zakon_id, []).append(((ev.ed_date, ev.order), i))
+    for i, g in enumerate(groups):  # a repeal comes after every edition of its code
+        for ev in g:
+            if ev.order == 2:
+                for z in {
+                    e.edition.zakon_id
+                    for h in groups
+                    for e in h
+                    if e.slug == ev.slug and e.edition is not None
+                }:
+                    tracks[z].append(((date.max, 2), i))
+    after: list[set[int]] = [set() for _ in range(n)]
+    for track in tracks.values():
+        track.sort()
+        for (_, a), (_, b) in pairwise(track):
+            if a != b:
+                after[a].add(b)
+
+    def reach(i: int) -> set[int]:
+        seen, todo = {i}, [i]
+        while todo:
+            for j in after[todo.pop()] - seen:
+                seen.add(j)
+                todo.append(j)
+        return seen
+
+    reachable = [reach(i) for i in range(n)]
+    comp = [min(j for j in reachable[i] if i in reachable[j]) for i in range(n)]
+    members: dict[int, list[int]] = {}
+    for i in range(n):
+        members.setdefault(comp[i], []).append(i)
+    deps: dict[int, set[int]] = {c: set() for c in members}
+    for i in range(n):
+        for j in after[i]:
+            if comp[i] != comp[j]:
+                deps[comp[j]].add(comp[i])
+    ready = [c for c in members if not deps[c]]
+    heapify(ready)
+    out: list[list[_Event]] = []
+    while ready:
+        c = heappop(ready)
+        out.append(sorted(ev for i in members[c] for ev in groups[i]))
+        for d in members:
+            if c in deps[d]:
+                deps[d].discard(c)
+                if not deps[d]:
+                    heappush(ready, d)
+    return out
 
 
 def _metas(bases: Iterable[str], index: LawIndex | None) -> dict[str, LawMeta | None]:
@@ -226,8 +297,12 @@ def _groups(sources: list[CodeSource], load_tree: TreeLoader) -> Iterator[_Group
             reason = "initial" if first.order == 0 else reason_of(bases)
             for ed in editions:
                 old = trees.get(ed.zakon_id)
-                if old is None or old.edition.date <= ed.date:  # never go back to an older text
-                    trees[ed.zakon_id] = load_tree(ed)
+                if old is not None and old.edition.date > ed.date:
+                    raise BuildError(
+                        f"{ed.zakon_id} ed{ed.date:%Y%m%d} comes after "
+                        f"ed{old.edition.date:%Y%m%d} in the history of main"
+                    )
+                trees[ed.zakon_id] = load_tree(ed)
             for slug in slugs:
                 src = by_slug[slug]
                 current = [trees[z] for z in src.code.zakon_ids if z in trees]
@@ -584,7 +659,7 @@ def cached_tree_loader(client: ZakonClient) -> TreeLoader:
         path = client.edition_path(ed.zakon_id, f"{ed.date:%Y%m%d}")
         try:
             return build_tree(extract_paragraphs(read_gz(path)), ed)
-        except (OSError, ValueError) as e:
+        except (OSError, EOFError, ValueError) as e:
             raise BuildError(f"{ed.zakon_id} ed{ed.date:%Y%m%d}: {e}") from e
 
     return load
