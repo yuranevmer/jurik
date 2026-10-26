@@ -1,5 +1,7 @@
 import json
+import os
 from datetime import date
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -190,3 +192,69 @@ def test_cli_export(tmp_path, monkeypatch):
     )
     assert result.exit_code == 1
     assert "no commit" in result.output
+
+
+def _assert_export_intact(out, editions):
+    assert (out / ART).read_text() == "a1\n"
+    assert json.loads((out / "manifest.json").read_text())["editions"] == editions
+    assert [p.name for p in out.parent.iterdir() if p.name.startswith(f".{out.name}.")] == []
+
+
+def test_failed_export_keeps_previous_export(tmp_path, monkeypatch):
+    repo = make_repo(tmp_path)
+    out = tmp_path / "dataset"
+    export(repo, date(2014, 1, 1), out)
+    mask = os.umask(0)
+    os.umask(mask)
+    assert out.stat().st_mode & 0o777 == 0o777 & ~mask  # not mkdtemp's 0700
+    editions = {"2947-14": "ed20020110"}
+    # git archive fails (the repository is gone)
+    with pytest.raises(ExportError, match="git"):
+        export(tmp_path / "no-repo", date(2014, 1, 1), out)
+    _assert_export_intact(out, editions)
+
+    # a write error after extraction (e.g. disk full on the manifest)
+    real = Path.write_text
+
+    def failing(self, *args, **kwargs):
+        if self.name == "manifest.json":
+            raise OSError(28, "No space left on device")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing)
+    with pytest.raises(OSError, match="No space"):
+        export(repo, date(2015, 6, 1), out)
+    monkeypatch.undo()
+    _assert_export_intact(out, editions)
+    # the next export still replaces it
+    export(repo, date(2015, 6, 1), out)
+    assert (out / ART).read_text() == "a2\n"
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".dataset.")] == []
+
+
+def test_cli_export_os_error_is_clean(tmp_path):
+    repo = make_repo(tmp_path)
+    afile = tmp_path / "file"
+    afile.write_text("x")
+    # --out inside a file path
+    args = ["export", "--repo", str(repo), "--at", "2014-01-01", "--out", str(afile / "ds")]
+    result = CliRunner().invoke(main, args)
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+    assert not isinstance(result.exception, OSError)  # ClickException → SystemExit, no traceback
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_cli_export_read_only_out(tmp_path):
+    repo = make_repo(tmp_path)
+    parent = tmp_path / "ro"
+    parent.mkdir()
+    parent.chmod(0o555)
+    try:
+        args = ["export", "--repo", str(repo), "--at", "2014-01-01", "--out", str(parent / "ds")]
+        result = CliRunner().invoke(main, args)
+    finally:
+        parent.chmod(0o755)
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+    assert "Permission denied" in result.output

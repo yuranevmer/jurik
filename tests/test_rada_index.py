@@ -168,3 +168,22 @@ def test_pick_vote_priorities():
     assert pick_vote([], d) is None
     # not a law: last «в цілому» vote, whatever the result
     assert pick_vote([first, failed, stageless], None) == (200, 10, 0)
+
+
+def test_csv_neither_utf8_nor_cp1251(rada_cache):
+    path = rada_cache / "rada" / "skl5" / "bills_acts-skl5.csv.gz"
+    path.write_bytes(gzip.compress(b"bill_id,foo\n\x98\xff,2\n"))  # 0x98 is not in cp1251
+    with pytest.raises(RadaError, match=r"bills_acts-skl5\.csv\.gz: neither UTF-8 nor cp1251"):
+        build_index(rada_cache, [5])
+
+
+def test_corrupt_deflate_member(rada_cache):
+    path = rada_cache / "rada" / "skl9" / "billinfo-skl9.zip"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("billinfo-skl9.json", "[" + ",".join(['{"id": 1}'] * 500) + "]")
+    raw = bytearray(path.read_bytes())
+    start = raw.index(b"billinfo-skl9.json") + len("billinfo-skl9.json")  # local header name
+    raw[start : start + 8] = b"\xff" * 8  # garbage at the start of the deflate stream
+    path.write_bytes(bytes(raw))
+    with pytest.raises(RadaError, match=r"billinfo-skl9\.zip: not a zip archive"):
+        build_index(rada_cache, [9])

@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import tarfile
+import tempfile
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -147,16 +149,35 @@ def is_previous_export(out: Path) -> bool:
     )
 
 
-def _prepare_out(out: Path) -> None:
+def _check_out(out: Path) -> None:
     """``out`` must be absent, empty or a previous export (it is then replaced)."""
     if out.exists():
         if not out.is_dir():
             raise ExportError(f"{out} is not a directory")
-        if any(out.iterdir()):
-            if not is_previous_export(out):
-                raise ExportError(f"{out} is not empty and is not a previous export")
-            shutil.rmtree(out)
-    out.mkdir(parents=True, exist_ok=True)
+        if any(out.iterdir()) and not is_previous_export(out):
+            raise ExportError(f"{out} is not empty and is not a previous export")
+
+
+def _umask() -> int:
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+def _swap_in(tmp: Path, out: Path) -> None:
+    """Replace ``out`` (absent, empty or a previous export) by the complete ``tmp``."""
+    if not out.exists():
+        tmp.rename(out)
+        return
+    old = Path(tempfile.mkdtemp(prefix=f".{out.name}.old-", dir=out.parent))
+    old.rmdir()
+    out.rename(old)
+    try:
+        tmp.rename(out)
+    except OSError:
+        old.rename(out)
+        raise
+    shutil.rmtree(old, ignore_errors=True)
 
 
 def _extract(repo: Path, rev: str, out: Path, paths: list[str] | None = None) -> list[str]:
@@ -193,9 +214,27 @@ def export(repo: Path, at: date, out: Path, *, with_bills: bool = False) -> Expo
         raise ExportError(str(e)) from e
     if not commits:
         raise ExportError(f"no commit of {MAIN} is in force on {at.isoformat()}")
+    _check_out(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # written into a sibling directory and swapped in only when complete, so a failed
+    # export leaves the previous one intact
+    tmp = Path(tempfile.mkdtemp(prefix=f".{out.name}.tmp-", dir=out.parent))
+    try:
+        tmp.chmod(0o777 & ~_umask())  # mkdtemp makes it 0700
+        result = _write(repo, at, commits, tmp, with_bills=with_bills)
+        _swap_in(tmp, out)
+    except BaseException:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    return result
+
+
+def _write(
+    repo: Path, at: date, commits: list[MainCommit], out: Path, *, with_bills: bool
+) -> ExportResult:
+    """Write the export of ``commits[-1]`` into the empty directory ``out``."""
     commit = commits[-1]
     sha = commit.sha
-    _prepare_out(out)
     try:
         names = _extract(repo, sha, out)
     except RepoError as e:

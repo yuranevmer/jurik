@@ -299,6 +299,14 @@ def _cell_text(cell: HtmlElement) -> str:
     return _element_text(cell).replace("|", r"\|")
 
 
+def _span(cell: HtmlElement, attr: str) -> int:
+    """``colspan``/``rowspan`` of a cell; 1 when missing or not a number."""
+    try:
+        return int(cell.get(attr) or 1)
+    except ValueError:
+        return 1
+
+
 def table_to_text(table: HtmlElement) -> list[str]:
     """Convert a table to text blocks.
 
@@ -311,10 +319,7 @@ def table_to_text(table: HtmlElement) -> list[str]:
         cells = [c for c in tr if c.tag in ("td", "th")]
         if not cells:
             continue
-        spans = spans or any(
-            int(c.get("colspan", "1") or 1) > 1 or int(c.get("rowspan", "1") or 1) > 1
-            for c in cells
-        )
+        spans = spans or any(_span(c, "colspan") > 1 or _span(c, "rowspan") > 1 for c in cells)
         rows.append([_cell_text(c) for c in cells])
     rows = [r for r in rows if any(r)]
     if not rows:

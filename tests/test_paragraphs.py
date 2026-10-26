@@ -351,3 +351,13 @@ def test_non_rectangular_table():
     )
     paras = extract_paragraphs(html)
     assert paras[-1] == Para("a | b\nc\\|d", "body")
+
+
+def test_table_with_non_numeric_span():
+    html = (
+        '<html><body><div id="article"><p>Стаття 1. Т</p><div><table>'
+        '<tr><td colspan="x">a</td><td rowspan="2a">b</td></tr><tr><td>c</td><td>d</td></tr>'
+        "</table></div></div></body></html>"
+    )
+    paras = extract_paragraphs(html)
+    assert paras[-1] == Para("| a | b |\n| --- | --- |\n| c | d |", "body")  # spans read as 1

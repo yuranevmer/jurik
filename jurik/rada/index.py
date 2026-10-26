@@ -19,6 +19,7 @@ import io
 import json
 import re
 import zipfile
+import zlib
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import date
@@ -177,7 +178,10 @@ def read_csv(path: Path, required: Iterable[str]) -> list[dict[str, str]]:
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:
-        text = raw.decode("cp1251")
+        try:
+            text = raw.decode("cp1251")
+        except UnicodeDecodeError as e:
+            raise RadaError(f"{path}: neither UTF-8 nor cp1251: {e}") from e
     reader = csv.DictReader(io.StringIO(text))
     missing = set(required) - set(reader.fieldnames or [])
     if missing:
@@ -196,8 +200,10 @@ def read_billinfo(path: Path) -> list[dict]:
             if not members:
                 raise RadaError(f"{path}: no JSON file in archive")
             text = zf.read(members[0]).decode("utf-8-sig")
-    except zipfile.BadZipFile as e:
+    except (zipfile.BadZipFile, zlib.error, EOFError) as e:
         raise RadaError(f"{path}: not a zip archive ({e})") from e
+    except UnicodeDecodeError as e:
+        raise RadaError(f"{path}: JSON is not UTF-8: {e}") from e
     try:
         data = json.loads(text, strict=False)  # strings contain raw control characters
     except ValueError as e:

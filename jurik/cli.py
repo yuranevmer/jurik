@@ -271,7 +271,7 @@ def export(at_date: datetime | None, with_bills: bool, repo: Path, out: Path) ->
     at = at_date.date() if at_date else kyiv_today()
     try:
         res = export_dataset(repo, at, out, with_bills=with_bills)
-    except JurikError as e:
+    except (JurikError, OSError) as e:
         raise click.ClickException(str(e)) from e
     msg = f"{out}: {res.files} file(s) of {len(res.codes)} code(s) at {res.commit[:10]}"
     msg += f" (In-force {res.in_force})"
