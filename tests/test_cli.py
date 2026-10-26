@@ -88,6 +88,7 @@ def test_cli_build_linear_from_cache(tmp_path, fixtures_dir, monkeypatch):
         "Сімейний кодекс України: перша редакція",
     ]
     assert (tmp_path / "laws/codes/family/_meta.yaml").is_file()
+    assert "Сімейний кодекс України" in (tmp_path / "laws/README.md").read_text("utf-8")
 
 
 def test_cli_build_linear_missing_cache_fails(tmp_path, monkeypatch):

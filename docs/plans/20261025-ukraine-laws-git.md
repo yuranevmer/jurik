@@ -583,11 +583,12 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 
 ### Task 19: [Final] Update documentation
 
-- [ ] `README.md`: назначение, команды CLI, как клонировать `laws` и читать историю (`git log --first-parent`, `git log --follow`), объяснение осей времени (committer date = принятие, `In-force:` = действие), пометка об источниках и обязательном указании источника данных
+- [x] `README.md`: назначение, команды CLI, как клонировать `laws` и читать историю (`git log --first-parent`, `git log --follow`), объяснение осей времени (committer date = принятие, `In-force:` = действие), пометка об источниках и обязательном указании источника данных
 - ⚠️ (Task 17) в раскладку добавлены: файл-вариант статьи `art-NNNN_2.md` (повтор номера статьи в источнике), уровень `subsection` с заголовком `# II. ОСОБЛИВА ЧАСТИНА` (КУпАП), буквенные суффиксы глав в папках `03-a-…` (КЗпП) — описать в README
-- [ ] `build/laws/README.md` генерируется builder'ом: структура, модель веток, поля сообщений, предупреждение про ветки `bill/*`
-- [ ] создать `CLAUDE.md` с конвенциями проекта (uv, pytest, фикстуры, сетевые тесты выключены)
-- [ ] move this plan to `docs/plans/completed/`
+- [x] `build/laws/README.md` генерируется builder'ом: структура, модель веток, поля сообщений, предупреждение про ветки `bill/*`
+- [x] создать `CLAUDE.md` с конвенциями проекта (uv, pytest, фикстуры, сетевые тесты выключены)
+- [x] move this plan to `docs/plans/completed/` (handled by orchestrator)
+- ✅ итог (Task 19): `README.md` переписан на русском (назначение, CLI, чтение `build/laws`, две оси времени, раскладка с `art-NNNN_2.md`/`final`/`group`/`03-a-…`, модель веток, трейлеры, инварианты, текущая сборка, известные ограничения, обязательное указание источника). `jurik/build/readme.py`: `readme_markdown(codes, bills_limit=)` (украинский: джерела и вимога посилання, таблиця кодексів, структура, модель історії, попередження про `bill/*` без злиття, трейлери, як читати, обмеження) и `add_readme(steps, codes, bills_limit=)` кладёт `README.md` в change set первого коммита `main`; вызывается в `jurik build` (и `--linear`). Тесты `tests/test_readme.py` + проверка в `test_cli`. `build/laws` не пересобирался: README появится при следующем `jurik build`. `CLAUDE.md` с конвенциями
 
 ## Post-Completion
 

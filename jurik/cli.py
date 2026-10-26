@@ -19,6 +19,7 @@ from jurik.build.history import (
     sources_from_cache,
     write_steps,
 )
+from jurik.build.readme import add_readme
 from jurik.config import Code, ConfigError, Paths, get_code, load_codes
 from jurik.export import ExportError
 from jurik.export import export as export_dataset
@@ -195,6 +196,7 @@ def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, ou
                         bills_limit=bills_limit,
                     )
             prints = latest_prints(sources, client)
+        add_readme(steps, selected, bills_limit=None if linear else bills_limit)
         stream = Stream()
         write_steps(steps, stream)
         run(stream, out)
