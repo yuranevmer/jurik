@@ -189,3 +189,78 @@ def test_cli_build_rejected_bills_limit(tmp_path, fixtures_dir, monkeypatch):
         check=True,
     ).stdout
     assert show.endswith("---\n\nТекст 1\n")
+
+
+def _family_cache(tmp_path, fixtures_dir):
+    import json
+
+    from jurik.zakon.http import ZakonClient, write_gz
+
+    client = ZakonClient(tmp_path / "cache")
+    card = {
+        "nreg": "2947-14",
+        "nazva": "Сімейний кодекс України",
+        "orgdat": 20020110,
+        "eds": [{"datred": 20020110, "pidstava": ""}, {"datred": 20030101, "pidstava": "407-15"}],
+    }
+    write_gz(client.card_path("2947-14"), json.dumps(card))
+    html = (fixtures_dir / "zakon" / "2947-14_ed20020110_print.html").read_text("utf-8")
+    for d in ("20020110", "20030101"):
+        write_gz(client.edition_path("2947-14", d), html)
+    client.close()
+
+
+def test_cli_build_warns_without_law_index(tmp_path, fixtures_dir, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _family_cache(tmp_path, fixtures_dir)
+    result = CliRunner().invoke(main, ["build", "--code", "family", "--out", "laws"])
+    assert result.exit_code == 0, result.output
+    assert "warning: no law index" in result.output
+    assert "messages without law titles" in result.output
+
+
+def test_cli_build_reports_violations(tmp_path, fixtures_dir, monkeypatch):
+    from jurik.build.check import Violation
+
+    monkeypatch.chdir(tmp_path)
+    _family_cache(tmp_path, fixtures_dir)
+    monkeypatch.setattr(cli, "check_repo", lambda *a: [Violation("b", "x")])
+    result = CliRunner().invoke(main, ["build", "--code", "family", "--out", "laws"])
+    assert result.exit_code == 1
+    assert "VIOLATION (b) x" in result.output
+    assert "check_repo: 1 violation(s)" in result.output
+
+
+def test_cli_build_refuses_foreign_out(tmp_path, fixtures_dir, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _family_cache(tmp_path, fixtures_dir)
+    (tmp_path / "laws").mkdir()
+    (tmp_path / "laws" / "keep.txt").write_text("x")
+    result = CliRunner().invoke(main, ["build", "--code", "family", "--out", "laws"])
+    assert result.exit_code == 1
+    assert "not a repository built by jurik" in result.output
+    assert (tmp_path / "laws" / "keep.txt").exists()
+
+
+def test_cli_build_value_error_is_click_error(tmp_path, fixtures_dir, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _family_cache(tmp_path, fixtures_dir)
+
+    def boom(*a, **kw):
+        raise ValueError("cannot make a ref name from '..'")
+
+    monkeypatch.setattr(cli, "plan_full", boom)
+    result = CliRunner().invoke(main, ["build", "--code", "family", "--out", "laws"])
+    assert result.exit_code == 1
+    assert "Error: cannot make a ref name" in result.output
+
+
+def test_cli_report_happy_path(tmp_path, fixtures_dir, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _family_cache(tmp_path, fixtures_dir)
+    assert CliRunner().invoke(main, ["build", "--code", "family", "--out", "laws"]).exit_code == 0
+    result = CliRunner().invoke(main, ["report", "--code", "family", "--repo", "laws"])
+    assert result.exit_code == 0, result.output
+    assert "1 code(s), 2 cached edition(s) parsed, 0 failed" in result.output
+    md = (tmp_path / "report" / "coverage.md").read_text("utf-8")
+    assert "| family |" in md

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import time
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 import click
 
 from jurik.build.check import CheckError, check_repo
-from jurik.build.fastimport import FastImportError, Stream, run
+from jurik.build.fastimport import Stream, run
+from jurik.build.gitcmd import GitError
 from jurik.build.history import (
     BuildError,
     CodeSource,
@@ -23,7 +24,7 @@ from jurik.build.readme import add_readme
 from jurik.config import Code, ConfigError, Paths, get_code, load_codes
 from jurik.export import ExportError
 from jurik.export import export as export_dataset
-from jurik.model import Edition
+from jurik.model import Edition, kyiv_today
 from jurik.parse import EditionCheck, failures_report, parse_code
 from jurik.rada.billtext import BillTexts
 from jurik.rada.client import CONVOCATIONS, RadaClient, RadaError
@@ -38,8 +39,8 @@ from jurik.report import (
     not_cached,
     repo_stats,
 )
-from jurik.zakon.card import CardParseError, base_kind, parse_card
-from jurik.zakon.fetch import FetchResult, fetch_code
+from jurik.zakon.card import base_kind
+from jurik.zakon.fetch import FetchResult, cached_cards, fetch_code
 from jurik.zakon.http import ZakonClient, read_gz
 
 
@@ -113,17 +114,15 @@ def cached_code_bases(codes: list[Code], cache: Path) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     with make_zakon_client(cache) as client:
         for code in codes:
-            bases: list[str] = []
-            for zakon_id in code.zakon_ids:
-                if not client.is_cached(client.card_path(zakon_id)):
-                    break
-                try:
-                    card = parse_card(client.card(zakon_id), zakon_id)
-                except CardParseError:
-                    break
-                bases += [b for ed in card.editions for b in ed.bases if base_kind(b) == "law"]
-            else:
-                out[code.slug] = bases
+            cards = cached_cards(code, client)
+            if cards is not None:
+                out[code.slug] = [
+                    b
+                    for card in cards.values()
+                    for ed in card.editions
+                    for b in ed.bases
+                    if base_kind(b) == "law"
+                ]
     return out
 
 
@@ -168,7 +167,11 @@ def parse(code_slug: str | None, edition: str | None, all_editions: bool) -> Non
 )
 @click.option("--out", type=click.Path(path_type=Path), default=Path("build/laws"))
 def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, out: Path) -> None:
-    """Build the laws git repository from cached editions (recreated from scratch)."""
+    """Build the laws git repository from cached editions (recreated from scratch).
+
+    Run `jurik fetch` and `jurik rada` first: without the Rada law index the build only
+    warns and every law branch becomes bill/law/<nreg> without bill metadata.
+    """
     started = time.monotonic()
     paths = Paths(Path.cwd())
     try:
@@ -201,7 +204,8 @@ def build(code_slugs: tuple[str, ...], linear: bool, bills_limit: int | None, ou
         write_steps(steps, stream)
         run(stream, out)
         violations = check_repo(out, steps, prints)
-    except (BuildError, FastImportError, RenderError, CheckError, RadaError) as e:
+    except (BuildError, GitError, RenderError, RadaError, ValueError, OSError) as e:
+        # ValueError: unusable ref names / messages from bad metadata; OSError: cache files
         raise click.ClickException(str(e)) from e
     took = time.monotonic() - started
     branches = len({s.ref for s in steps if s.kind == "branch"})
@@ -299,16 +303,10 @@ def report(code_slugs: tuple[str, ...], repo: Path) -> None:
 def cached_editions(code: Code, client: ZakonClient) -> list[Edition] | None:
     """In-force editions of every document of ``code`` from cached cards; None if a card
     is not cached or cannot be parsed."""
-    editions: list[Edition] = []
-    for zakon_id in code.zakon_ids:
-        path = client.card_path(zakon_id)
-        if not path.is_file():
-            return None
-        try:
-            editions += parse_card(read_gz(path), zakon_id).current()
-        except CardParseError:
-            return None
-    return editions
+    cards = cached_cards(code, client)
+    if cards is None:
+        return None
+    return [e for card in cards.values() for e in card.current()]
 
 
 @main.command()
@@ -325,7 +323,7 @@ def cached_editions(code: Code, client: ZakonClient) -> list[Edition] | None:
 @click.option("--out", type=click.Path(path_type=Path), required=True)
 def export(at_date: datetime | None, with_bills: bool, repo: Path, out: Path) -> None:
     """Export the markdown of main in force on a date, plus manifest.json."""
-    at = at_date.date() if at_date else date.today()
+    at = at_date.date() if at_date else kyiv_today()
     try:
         res = export_dataset(repo, at, out, with_bills=with_bills)
     except (ExportError, CheckError) as e:

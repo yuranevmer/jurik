@@ -7,7 +7,11 @@ The card is the JSON from ``https://data.rada.gov.ua/laws/card/<nreg>.json``. Th
 - ``status``: numeric state from the ``stan`` dictionary;
 - ``eds[]``: editions, each ``{datred: YYYYMMDD, pidstava: "nreg,nreg", comment?}``.
   Conditional editions without a calendar date have ``datred`` 30000101, 30000102, ...
-  and the condition in ``comment``.
+  and the condition in ``comment``;
+- ``hist[]`` (or the ``history`` string ``YYYYMMDD:podid:pidstava|…``): events of the
+  document; ``podid`` 1 = entry into force. The first edition of most codes is dated on
+  adoption (Податковий: ed20101202, in force 2011-01-01), so ``CardInfo.in_force`` keeps
+  the entry-into-force date.
 
 Bases (підстави) stay in nreg form (``4834-17``, ``254к/96-вр``, ``v020p710-10``): the
 displayed suffix (``-VIII``) is ambiguous, nreg is the stable key. ``display_number`` gives a
@@ -22,7 +26,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from jurik.model import Edition, EditionKind
+from jurik.model import Edition, EditionKind, kyiv_today
 
 ZAKON_SHOW_URL = "https://zakon.rada.gov.ua/laws/show/{id}/ed{date}"
 
@@ -42,6 +46,8 @@ STATUSES = {
 
 # conditional editions ("через 6 місяців з дня припинення воєнного стану") are dated 3000-01-0N
 CONDITIONAL_YEAR = 3000
+
+ENTRY_INTO_FORCE = 1  # podid of «Набрання чинності» in hist/history
 
 COURT_RE = re.compile(r"^v\w+p710-\d\d$")
 # 2856-17, 2147а-19, 256/96-вр, 5465-10
@@ -63,6 +69,7 @@ class CardInfo:
     adopted: date | None
     status: str
     editions: list[Edition]
+    in_force: date | None = None  # entry into force of the document (hist podid 1)
 
     def current(self) -> list[Edition]:
         """Editions already in force (not future)."""
@@ -133,9 +140,7 @@ def display_number(nreg: str) -> str:
     return nreg
 
 
-def load_card(text: str | bytes | dict) -> dict:
-    if isinstance(text, dict):
-        return text
+def load_card(text: str) -> dict:
     try:
         data = json.loads(text, strict=False)
     except ValueError as e:
@@ -145,12 +150,34 @@ def load_card(text: str | bytes | dict) -> dict:
     return data
 
 
-def parse_card(text: str | bytes | dict, zakon_id: str, *, today: date | None = None) -> CardInfo:
+def entry_into_force(data: dict) -> date | None:
+    """Earliest entry-into-force event (``podid`` 1) of the card's history, if any."""
+    events: list[tuple[Any, Any]] = []
+    hist = data.get("hist")
+    if isinstance(hist, list):
+        events = [(h.get("podid"), h.get("poddat")) for h in hist if isinstance(h, dict)]
+    elif isinstance(data.get("history"), str):
+        for item in data["history"].split("|"):
+            day, _, rest = item.partition(":")
+            events.append((rest.partition(":")[0], day))
+    dates = []
+    for podid, day in events:
+        if str(podid) == str(ENTRY_INTO_FORCE) and day:
+            try:
+                dates.append(parse_date(day))
+            except CardParseError:
+                continue
+    return min(dates, default=None)
+
+
+def parse_card(text: str, zakon_id: str, *, today: date | None = None) -> CardInfo:
     """Parse an OpenData JSON card into ``CardInfo`` with editions sorted by date.
 
-    Editions dated after ``today`` and conditional editions are marked ``future=True``.
+    Editions dated after ``today`` (Kyiv) and conditional editions are marked
+    ``future=True``. Two entries with one ``datred`` are one edition with the union of
+    their bases.
     """
-    today = today or date.today()
+    today = today or kyiv_today()
     data = load_card(text)
     nreg = str(data.get("nreg") or "")
     if nreg.lower() != zakon_id.lower():
@@ -165,6 +192,8 @@ def parse_card(text: str | bytes | dict, zakon_id: str, *, today: date | None = 
             raise CardParseError(f"{zakon_id}: malformed edition entry {raw!r}")
         d = parse_date(raw["datred"])
         bases = split_bases(raw.get("pidstava"))
+        if d in by_date:  # duplicate entry for one date: keep every basis
+            bases = by_date[d].bases + [b for b in bases if b not in by_date[d].bases]
         conditional = d.year >= CONDITIONAL_YEAR
         by_date[d] = Edition(
             zakon_id=zakon_id,
@@ -185,4 +214,5 @@ def parse_card(text: str | bytes | dict, zakon_id: str, *, today: date | None = 
         adopted=parse_date(adopted) if adopted else None,
         status=STATUSES.get(status, str(status)) if isinstance(status, int) else str(status or ""),
         editions=[by_date[d] for d in sorted(by_date)],
+        in_force=entry_into_force(data),
     )

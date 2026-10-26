@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
+
+KYIV = ZoneInfo("Europe/Kyiv")
+
+
+def kyiv_today() -> date:
+    """Today in Kyiv: the sources date editions by Ukrainian calendar days."""
+    return datetime.now(KYIV).date()
+
 
 EditionKind = Literal["law", "court", "other"]
 # "final": unnumbered top-level «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ» (ЦК), number "";

@@ -1,19 +1,24 @@
-"""Plan the history of ``main``: one step per edition date and set of bases.
+"""Plan the history of ``main`` and of the bill branches.
 
-Every in-force edition of every code is an event. Events with the same date and the same
-non-empty set of bases are one step (a law amending several codes is one commit). The first
-edition of each document is an ``initial`` step, a repealed code gets a ``repealed`` step
-that deletes its folder. A step renders the touched codes from the latest tree of each of
-their documents (КУпАП = union of both parts) and diffs against the previous render.
+Every in-force edition of every code is an event dated by its In-force date: the edition
+date, or the document's entry into force when that is later (the first edition of most
+codes is dated on adoption: Податковий ed20101202 is in force from 2011-01-01). Events of
+one In-force date that share a basis (directly or through other events of that date) are
+one step: a law amending several codes, or several laws in one edition, is one commit.
+The first edition of each document is an ``initial`` step, a repealed code gets a
+``repealed`` step that deletes its folder. A step renders the touched codes from the latest
+tree of each of their documents (КУпАП = union of both parts) and diffs against the
+previous render.
 """
 
 from __future__ import annotations
 
+import re
 from bisect import bisect_right
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from jurik.build.changeset import ChangeSet, diff
 from jurik.build.fastimport import Ident, Stream
@@ -30,8 +35,9 @@ from jurik.model import BillRef, DocTree, Edition, LawMeta
 from jurik.rada.index import LawIndex
 from jurik.rada.match import bills_for_code
 from jurik.render import render
-from jurik.zakon.card import CardParseError, base_kind, parse_card
-from jurik.zakon.http import ZakonClient, read_gz
+from jurik.zakon.card import CardParseError, base_kind
+from jurik.zakon.fetch import cached_card
+from jurik.zakon.http import ZakonClient, ZakonError, read_gz
 from jurik.zakon.paragraphs import extract_paragraphs
 from jurik.zakon.tree import build_tree
 
@@ -70,6 +76,8 @@ class CodeSource:
     code: Code
     editions: dict[str, list[Edition]]  # zakon_id → editions
     adopted: date | None = None
+    # zakon_id → entry into force of the document when later than its first edition
+    in_force: dict[str, date] = field(default_factory=dict)
 
 
 class BuildError(RuntimeError):
@@ -84,8 +92,7 @@ class Step:
     editions: list[Edition]
     codes: list[str]  # slugs of touched codes
     changes: ChangeSet
-    author: Ident
-    committer: Ident
+    author: Ident  # also the committer
     message: str
     ref: str = MAIN
     parents: tuple[int, ...] = ()  # indices of parent steps in the plan; [0] is first parent
@@ -96,19 +103,26 @@ class Step:
 
 @dataclass(order=True)
 class _Event:
-    date: date
+    date: date  # In-force
+    ed_date: date  # date of the edition (of the repeal for ``order`` 2)
     order: int  # 0 initial, 1 edition, 2 repeal: same-day initial goes first, repeal last
     bases: tuple[str, ...]
     key: str  # zakon_id/slug for events that are never merged with other codes
     slug: str = field(compare=False)
     edition: Edition | None = field(compare=False, default=None)
 
-    def group(self) -> tuple:
-        if self.order == 0:  # both documents of КУпАП starting on one day: one initial step
-            return (self.date, self.order, self.slug)
-        if self.order == 1 and self.bases:
-            return (self.date, self.order, self.bases)
-        return (self.date, self.order, self.bases, self.key)
+
+_NREG = re.compile(r"^(\d+)(\D*?)(?:-(\d\d)|/(\d\d)-вр)$")
+
+
+def law_sort_key(nreg: str) -> tuple[Any, ...]:
+    """Order of law numbers: by convocation suffix, then numerically (``999-20`` before
+    ``1001-20``); ``…/96-вр`` acts before convocation III (``-14``), non-laws last."""
+    m = _NREG.match(nreg)
+    if not m:
+        return (99, 0, nreg)
+    conv = int(m.group(3)) if m.group(3) else 13
+    return (conv, int(m.group(1)), m.group(2), nreg)
 
 
 def reason_of(bases: Iterable[str]) -> Reason:
@@ -128,16 +142,49 @@ def _events(sources: Iterable[CodeSource]) -> list[_Event]:
     for src in sources:
         code = src.code
         for zakon_id in code.zakon_ids:
+            start = src.in_force.get(zakon_id)
             for i, ed in enumerate(src.editions.get(zakon_id, [])):
                 if code.repealed and ed.date > code.repealed:
                     continue
+                when = max(ed.date, start) if start else ed.date
                 order = 0 if i == 0 else 1
-                bases = tuple(sorted(ed.bases))
-                events.append(_Event(ed.date, order, bases, zakon_id, code.slug, ed))
+                bases = tuple(sorted(ed.bases, key=law_sort_key))
+                events.append(_Event(when, ed.date, order, bases, zakon_id, code.slug, ed))
         if code.repealed:
             bases = (code.repealed_by,) if code.repealed_by else ()
-            events.append(_Event(code.repealed, 2, bases, code.slug, code.slug))
+            events.append(_Event(code.repealed, code.repealed, 2, bases, code.slug, code.slug))
     return sorted(events)
+
+
+def _grouped(events: list[_Event]) -> list[list[_Event]]:
+    """Events of one step each: editions of one In-force date are joined when their bases
+    overlap (connected components), initial editions of one code on one date are joined;
+    every other event is a step of its own."""
+    parent: dict[tuple[date, str], tuple[date, str]] = {}
+
+    def find(x: tuple[date, str]) -> tuple[date, str]:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for ev in events:
+        if ev.order == 1 and ev.bases:
+            nodes = [(ev.date, b) for b in ev.bases]
+            for n in nodes:
+                parent.setdefault(n, n)
+            for n in nodes[1:]:
+                parent[find(n)] = find(nodes[0])
+    groups: dict[tuple, list[_Event]] = {}
+    for ev in events:
+        if ev.order == 0:  # both documents of КУпАП starting on one day: one initial step
+            key: tuple = (ev.date, 0, ev.slug)
+        elif ev.order == 1 and ev.bases:
+            key = (ev.date, 1, find((ev.date, ev.bases[0])))
+        else:
+            key = (ev.date, ev.order, ev.bases, ev.key)
+        groups.setdefault(key, []).append(ev)
+    return list(groups.values())
 
 
 def _metas(bases: Iterable[str], index: LawIndex | None) -> dict[str, LawMeta | None]:
@@ -148,7 +195,7 @@ def _metas(bases: Iterable[str], index: LawIndex | None) -> dict[str, LawMeta | 
 
 @dataclass
 class _Group:
-    """One step of ``main`` before authorship and messages are decided."""
+    """One step of ``main`` before authorship, messages and parents are decided."""
 
     date: date
     reason: Reason
@@ -164,13 +211,9 @@ def _groups(sources: list[CodeSource], load_tree: TreeLoader) -> Iterator[_Group
     trees: dict[str, DocTree] = {}  # zakon_id → latest tree
     files: dict[str, dict[str, bytes]] = {}  # slug → latest render
 
-    groups: dict[tuple, list[_Event]] = {}
-    for ev in _events(sources):
-        groups.setdefault(ev.group(), []).append(ev)
-
-    for events in groups.values():
+    for events in _grouped(_events(sources)):
         first = events[0]
-        bases = tuple(sorted({b for ev in events for b in ev.bases}))
+        bases = tuple(sorted({b for ev in events for b in ev.bases}, key=law_sort_key))
         slugs = list(dict.fromkeys(ev.slug for ev in events))
         changes = ChangeSet()
         editions = [ev.edition for ev in events if ev.edition is not None]
@@ -182,7 +225,9 @@ def _groups(sources: list[CodeSource], load_tree: TreeLoader) -> Iterator[_Group
         else:
             reason = "initial" if first.order == 0 else reason_of(bases)
             for ed in editions:
-                trees[ed.zakon_id] = load_tree(ed)
+                old = trees.get(ed.zakon_id)
+                if old is None or old.edition.date <= ed.date:  # never go back to an older text
+                    trees[ed.zakon_id] = load_tree(ed)
             for slug in slugs:
                 src = by_slug[slug]
                 current = [trees[z] for z in src.code.zakon_ids if z in trees]
@@ -190,6 +235,20 @@ def _groups(sources: list[CodeSource], load_tree: TreeLoader) -> Iterator[_Group
                 changes.update(diff(files.get(slug, {}), new))
                 files[slug] = new
         yield _Group(first.date, reason, bases, editions, slugs, changes)
+
+
+def _step(g: _Group, author: Ident, message: str, **kw: Any) -> Step:
+    """A ``Step`` of group ``g``; ``kw`` overrides or adds fields."""
+    fields: dict[str, Any] = {
+        "date": g.date,
+        "reason": g.reason,
+        "bases": g.bases,
+        "editions": g.editions,
+        "codes": g.slugs,
+        "changes": g.changes,
+    }
+    fields.update(kw)
+    return Step(author=author, message=message, **fields)
 
 
 def _main_message(
@@ -218,39 +277,20 @@ def plan_linear(
     *,
     index: LawIndex | None = None,
 ) -> list[Step]:
-    """Linear history of ``main``: one ``Step`` per (date, bases) group, in date order.
+    """Linear history of ``main``: one commit per step, in In-force order.
 
     ``index`` (optional) only enriches messages with law titles, bills, votes.
     """
-    sources = list(sources)
-    by_slug = {s.code.slug: s for s in sources}
-    steps: list[Step] = []
-    for g in _groups(sources, load_tree):
-        name, email = AUTHORS[g.reason]
-        ident = Ident(name, email, g.date)
-        message = _main_message(g, by_slug, _metas(g.bases, index))
-        parents = (len(steps) - 1,) if steps else ()
-        steps.append(
-            Step(
-                g.date,
-                g.reason,
-                g.bases,
-                g.editions,
-                g.slugs,
-                g.changes,
-                ident,
-                ident,
-                message,
-                parents=parents,
-            )
-        )
-    return steps
+    return plan_full(sources, load_tree, index=index, linear=True)
 
 
 @dataclass
 class _Branch:
+    ref: str
     step: int  # index of the last branch commit
     stage: int
+    merged: int  # position in ``main`` of its last merge
+    synced: int | None  # position in ``main`` whose tree equals the tip's tree, if any
 
 
 def _initiator(meta: LawMeta | None, when: date) -> Ident:
@@ -262,6 +302,17 @@ def _initiator(meta: LawMeta | None, when: date) -> Ident:
     return Ident(*RADA, when)
 
 
+def _unique_ref(ref: str, taken: set[str]) -> str:
+    """``ref``, or ``ref-2``, ``ref-3``… when another bill or law already has that name
+    (``ref_safe`` folds case and ``/``; the open data can give two laws one bill)."""
+    out, n = ref, 1
+    while out in taken:
+        n += 1
+        out = f"{ref}-{n}"
+    taken.add(out)
+    return out
+
+
 def plan_full(
     sources: Iterable[CodeSource],
     load_tree: TreeLoader,
@@ -269,16 +320,28 @@ def plan_full(
     index: LawIndex | None = None,
     bill_texts: BillTextSource | None = None,
     bills_limit: int | None = None,
+    linear: bool = False,
 ) -> list[Step]:
     """History of ``main`` where every step based on a law is a merge of a bill branch.
 
-    The first law basis (by nreg) of a step names the branch: ``bill/<conv>/<number>`` when
-    its bill is in ``index``, else ``bill/law/<nreg>``. The branch commit starts from the
-    last commit of ``main`` in force on the bill's registration date (never before the
-    initial commit of a touched code; without a registration date from the merge parent)
-    and carries only the step's change set, so ``git diff bill^ bill`` shows just this law.
-    The merge = ``main`` head + the same change set. A later stage of the same law adds a
-    commit to the same branch and merges it again. Other steps stay linear commits.
+    The branch is named after a law of the step (one that already has a branch, else the
+    first by number): ``bill/<conv>/<number>`` when its bill is in ``index``, else
+    ``bill/law/<nreg>``; a name already taken by another law or bill gets ``-2``, ``-3``….
+
+    The branch commit carries the step's change set on top of a ``main`` commit B where
+    every path of the change set already has its current content, so the branch tip and the
+    merge result agree on those paths and ``git diff bill^ bill`` equals the merge's
+    first-parent diff: just this law, and ``git log``/``git blame`` of a file never skip
+    the commits of ``main`` in between. B = the latest of: the ``main`` commit in force on
+    the bill's registration date (without one: the merge parent), the initial commit of
+    each touched code, and the last ``main`` commit that changed any path of the change
+    set. The merge = ``main`` head + the same change set.
+
+    A later step of the same law (``Stage:`` 2, 3…, a later In-force date) adds a commit
+    to the same branch: on the previous tip if its tree still equals ``main`` at B, else on
+    B, which contains the previous merge (the branch ref moves forward, its earlier
+    commits stay its ancestors). Other steps stay linear commits; with ``linear`` every
+    step is.
 
     With ``index``, every bill concerning a code that did not become law (``bills_for_code``,
     status ≠ adopted) gets a branch with one commit adding ``bills/<conv>/<n>.md`` (text from
@@ -289,57 +352,52 @@ def plan_full(
     by_slug = {s.code.slug: s for s in sources}
     steps: list[Step] = []
     main: list[tuple[date, int]] = []  # (In-force, step index) of main commits, in order
+    dates: list[date] = []  # In-force of main commits (for bisect)
     born: dict[str, int] = {}  # slug → position in ``main`` of its initial commit
-    branches: dict[str, _Branch] = {}
+    touched: dict[str, int] = {}  # path → position in ``main`` of the last commit changing it
+    branches: dict[str, _Branch] = {}  # nreg → its branch
+    refs: set[str] = set()
 
     def add(step: Step) -> int:
         steps.append(step)
         return len(steps) - 1
 
+    def to_main(g: _Group, i: int) -> int:
+        main.append((g.date, i))
+        dates.append(g.date)
+        pos = len(main) - 1
+        for path in (*g.changes.modified, *g.changes.deleted):
+            touched[path] = pos
+        return pos
+
     for g in _groups(sources, load_tree):
         head = (main[-1][1],) if main else ()
-        laws = [b for b in g.bases if base_kind(b) == "law"]
+        laws = sorted((b for b in g.bases if base_kind(b) == "law"), key=law_sort_key)
         metas = _metas(g.bases, index)
-        if g.reason in ("initial", "repealed") or not laws:
-            name, email = AUTHORS[g.reason]
-            ident = Ident(name, email, g.date)
-            message = _main_message(g, by_slug, metas)
-            i = add(
-                Step(
-                    g.date,
-                    g.reason,
-                    g.bases,
-                    g.editions,
-                    g.slugs,
-                    g.changes,
-                    ident,
-                    ident,
-                    message,
-                    parents=head,
-                )
-            )
+        if linear or g.reason in ("initial", "repealed") or not laws or not main:
+            ident = Ident(*AUTHORS[g.reason], g.date)
+            i = add(_step(g, ident, _main_message(g, by_slug, metas), parents=head))
             if g.reason == "initial":
                 for slug in g.slugs:
                     born.setdefault(slug, len(main))
-            main.append((g.date, i))
+            to_main(g, i)
             continue
 
-        nreg = laws[0]
+        nreg = next((n for n in laws if n in branches), laws[0])
         meta = metas.get(nreg)
-        ref = bill_ref(meta.bill) if meta and meta.bill else law_ref(nreg)
-        adopted = (meta.adopted if meta else None) or g.date
         registered = meta.registered if meta else None
-        branch = branches.get(ref)
-        stage = branch.stage + 1 if branch else 1
+        adopted = (meta.adopted if meta else None) or g.date
+        branch = branches.get(nreg)
         if branch:
-            base: tuple[int, ...] = (branch.step,)
-        elif registered is None or not main:
-            base = head
+            ref, stage, floor = branch.ref, branch.stage + 1, branch.merged
         else:
-            pos = bisect_right([d for d, _ in main], registered) - 1
-            pos = max([pos, *(born.get(s, 0) for s in g.slugs)])
-            base = (main[pos][1],)
-        author = _initiator(meta, registered or adopted)
+            ref = _unique_ref(bill_ref(meta.bill) if meta and meta.bill else law_ref(nreg), refs)
+            stage = 1
+            floor = len(main) - 1 if registered is None else bisect_right(dates, registered) - 1
+            floor = max([floor, 0, *(born.get(s, 0) for s in g.slugs)])
+        paths = (*g.changes.modified, *g.changes.deleted)
+        pos = max([floor, *(touched.get(p, 0) for p in paths)])
+        parent = branch.step if branch and branch.synced == pos else main[pos][1]
         bmsg = branch_message(
             nreg=nreg,
             meta=meta,
@@ -349,45 +407,27 @@ def plan_full(
             stage=stage,
         )
         b = add(
-            Step(
-                g.date,
-                g.reason,
-                g.bases,
-                [],
-                g.slugs,
-                g.changes,
-                author,
-                author,
+            _step(
+                g,
+                _initiator(meta, registered or adopted),
                 bmsg,
+                editions=[],
+                changes=ChangeSet(dict(g.changes.modified), set(g.changes.deleted)),
                 ref=ref,
-                parents=base,
+                parents=(parent,),
                 kind="branch",
                 stage=stage,
             )
         )
-        branches[ref] = _Branch(b, stage)
-        rada = Ident(*RADA, adopted)
         message = _main_message(g, by_slug, metas, stage=stage, unknown_bill=True)
-        i = add(
-            Step(
-                g.date,
-                g.reason,
-                g.bases,
-                g.editions,
-                g.slugs,
-                g.changes,
-                rada,
-                rada,
-                message,
-                parents=(*head, b),
-                kind="merge",
-                stage=stage,
-                branch=ref,
-            )
-        )
-        main.append((g.date, i))
-    if index is not None and main:
-        _plan_rejected(steps, main, born, sources, index, set(branches), bill_texts, bills_limit)
+        rada = Ident(*RADA, adopted)
+        i = add(_step(g, rada, message, parents=(*head, b), kind="merge", stage=stage, branch=ref))
+        merged = to_main(g, i)
+        # the tip = main[pos] + changes; the merge = main[head] + changes
+        synced = merged if pos == merged - 1 else None
+        branches[nreg] = _Branch(ref, b, stage, merged, synced)
+    if index is not None and main and not linear:
+        _plan_rejected(steps, main, born, sources, index, refs, bill_texts, bills_limit)
     return steps
 
 
@@ -449,25 +489,20 @@ def _plan_rejected(
     born: dict[str, int],
     sources: list[CodeSource],
     index: LawIndex,
-    used_refs: set[str],
+    refs: set[str],
     bill_texts: BillTextSource | None,
     limit: int | None,
 ) -> None:
     """One branch commit per bill that never became law, appended after ``main``'s steps:
     ``bills/<conv>/<n>.md`` on top of the ``main`` commit in force on its registration day
-    (never before the initial commit of a code it concerns); never merged."""
+    (never before the initial commit of a code it concerns); never merged. A branch name
+    already taken gets ``-2``, ``-3``… (:func:`_unique_ref`)."""
     titles = {s.code.slug: s.code.title for s in sources}
     dates = [d for d, _ in main]
-    count = 0
-    for meta, slugs in rejected_bills(sources, index):
-        if limit is not None and count >= limit:
-            break
+    bills = rejected_bills(sources, index)
+    for meta, slugs in bills if limit is None else bills[:limit]:
         assert meta.bill is not None
-        ref = bill_ref(meta.bill)
-        if ref in used_refs:  # another number with the same ref name (case, «/»)
-            continue
-        used_refs.add(ref)
-        count += 1
+        ref = _unique_ref(bill_ref(meta.bill), refs)
         when = meta.registered
         pos = bisect_right(dates, when) - 1 if when else len(main) - 1
         pos = max([pos, 0, *(born.get(s, 0) for s in slugs)])
@@ -484,7 +519,6 @@ def _plan_rejected(
                 [],
                 slugs,
                 ChangeSet(modified={bill_path(meta.bill): content}),
-                author,
                 author,
                 rejected_bill_message(meta=meta, titles=code_titles),
                 ref=ref,
@@ -503,15 +537,12 @@ def write_steps(steps: Iterable[Step], stream: Stream) -> int | None:
     for step in steps:
         parents = [marks[p] for p in step.parents]
         mark = stream.commit(
-            step.ref, parents, step.author, step.committer, step.message, step.changes
+            step.ref, parents, step.author, step.author, step.message, step.changes
         )
         marks.append(mark)
         if step.ref == MAIN:
             head = mark
     return head
-
-
-write_linear = write_steps
 
 
 def sources_from_cache(
@@ -521,19 +552,16 @@ def sources_from_cache(
     must be cached too (the history must be complete), else ``BuildError``."""
     sources: list[CodeSource] = []
     for code in codes:
-        editions: dict[str, list[Edition]] = {}
-        adopted: date | None = None
+        src = CodeSource(code, {})
         for zakon_id in code.zakon_ids:
-            path = client.card_path(zakon_id)
-            if not path.is_file():
-                raise BuildError(f"{code.slug}: card {zakon_id} not cached, run `jurik fetch`")
             try:
-                card = parse_card(read_gz(path), zakon_id, today=today)
-            except CardParseError as e:
+                card = cached_card(client, zakon_id, today=today)
+            except (ZakonError, CardParseError) as e:
                 raise BuildError(f"{code.slug}: {e}") from e
+            current = card.current()
             missing = [
                 f"ed{e.date:%Y%m%d}"
-                for e in card.current()
+                for e in current
                 if not client.edition_path(zakon_id, f"{e.date:%Y%m%d}").is_file()
             ]
             if missing:
@@ -541,9 +569,11 @@ def sources_from_cache(
                     f"{code.slug} {zakon_id}: {len(missing)} edition(s) not cached "
                     f"({', '.join(missing[:5])}), run `jurik fetch --code {code.slug}`"
                 )
-            editions[zakon_id] = card.current()
-            adopted = adopted or card.adopted
-        sources.append(CodeSource(code, editions, adopted))
+            src.editions[zakon_id] = current
+            src.adopted = src.adopted or card.adopted
+            if card.in_force and current and card.in_force > current[0].date:
+                src.in_force[zakon_id] = card.in_force
+        sources.append(src)
     return sources
 
 

@@ -1,5 +1,6 @@
-import io
+import subprocess
 from datetime import date
+from pathlib import Path
 
 import pytest
 from gitrepo import git, tree_files
@@ -68,7 +69,7 @@ def test_three_commits_trees_dates_and_trailers(tmp_path):
 
 
 def test_blob_written_once_for_same_content():
-    stream = Stream(io.BytesIO())
+    stream = Stream()
     a = stream.blob(b"same")
     b = stream.blob(b"same")
     c = stream.blob(b"other")
@@ -82,7 +83,8 @@ def test_blob_written_once_for_same_content():
         "m\n",
         ChangeSet(modified={"x.md": b"same", "y.md": b"same"}),
     )
-    assert stream.file.getvalue().count(b"data 4\nsame") == 1
+    stream.file.seek(0)
+    assert stream.file.read().count(b"data 4\nsame") == 1
 
 
 def test_empty_changeset_still_makes_commit(tmp_path):
@@ -95,7 +97,8 @@ def test_empty_changeset_still_makes_commit(tmp_path):
 
 
 def test_fast_import_failure_raises_with_stderr(tmp_path):
-    stream = Stream(io.BytesIO(b"this is not a fast-import command\n"))
+    stream = Stream()
+    stream.file.write(b"this is not a fast-import command\n")
     with pytest.raises(FastImportError, match="fast-import.*(Unsupported|unsupported)"):
         run(stream, tmp_path / "r")
 
@@ -104,9 +107,45 @@ def test_prepare_repo_refuses_foreign_directory(tmp_path):
     out = tmp_path / "out"
     out.mkdir()
     (out / "notes.txt").write_text("keep me")
-    with pytest.raises(FastImportError, match="not a git repository"):
+    with pytest.raises(FastImportError, match="not a repository built by jurik"):
         prepare_repo(out)
     assert (out / "notes.txt").exists()
+
+
+def test_prepare_repo_refuses_foreign_git_checkout(tmp_path):
+    out = tmp_path / "project"
+    out.mkdir()
+    subprocess.run(["git", "init", "-q", str(out)], check=True)
+    (out / "src.py").write_text("keep me")
+    with pytest.raises(FastImportError, match="not a repository built by jurik"):
+        prepare_repo(out)
+    assert (out / "src.py").exists()
+
+
+def test_prepare_repo_refuses_current_directory_and_parents(tmp_path, monkeypatch):
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    for target in (Path("."), work, tmp_path):
+        with pytest.raises(FastImportError, match="current directory"):
+            prepare_repo(target)
+    assert work.exists()
+
+
+def test_built_repo_is_marked_and_recreatable(tmp_path):
+    repo = tmp_path / "r"
+    prepare_repo(repo)
+    assert git(repo, "config", "--get", "jurik.built").strip() == "true"
+    (repo / "junk").write_text("x")
+    prepare_repo(repo)
+    assert not (repo / "junk").exists()
+
+
+def test_ident_strips_angle_brackets_and_newlines():
+    who = Ident("Іван <Петренко>\nX", "a<b>@x\n", date(2020, 1, 1))
+    line = who.git()
+    assert line.startswith("Іван Петренко X <a b @x> ")
+    assert "\n" not in line
 
 
 def test_rebuild_replaces_previous_repo(tmp_path):

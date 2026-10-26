@@ -15,9 +15,12 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from jurik.build.check import CheckError, git, in_force_of, main_log
+import yaml
+
+from jurik.build.check import CheckError, MainCommit, git, in_force_of, main_log
 from jurik.build.history import MAIN, ROMAN
 from jurik.build.message import parse_trailers, status_label
+from jurik.rada.index import parse_day
 
 MANIFEST = "manifest.json"
 SOURCES = ["https://zakon.rada.gov.ua", "https://data.rada.gov.ua"]
@@ -34,16 +37,36 @@ class ExportResult:
     codes: list[str]
     files: int
     bills: list[str] = field(default_factory=list)  # exported bill files
+    editions: dict[str, str] = field(default_factory=dict)  # zakon_id → edYYYYMMDD
 
 
-def commit_at(repo: Path, at: date) -> str | None:
-    """Last ``--first-parent main`` commit with ``In-force:`` ≤ ``at`` (None if none)."""
-    found: str | None = None
-    for c in main_log(repo):
+def commits_at(repo: Path, at: date) -> list[MainCommit]:
+    """``--first-parent main`` commits up to the last one with ``In-force:`` ≤ ``at``
+    (oldest first; empty if none is in force on ``at``)."""
+    commits = main_log(repo)
+    last = -1
+    for i, c in enumerate(commits):
         d = in_force_of(c)
         if d is not None and d <= at:
-            found = c.sha
-    return found
+            last = i
+    return commits[: last + 1]
+
+
+def commit_at(repo: Path, at: date) -> MainCommit | None:
+    """Last ``--first-parent main`` commit with ``In-force:`` ≤ ``at`` (None if none)."""
+    commits = commits_at(repo, at)
+    return commits[-1] if commits else None
+
+
+def latest_editions(commits: list[MainCommit]) -> dict[str, str]:
+    """zakon_id → its latest ``Edition:`` (``edYYYYMMDD``) along ``commits``."""
+    out: dict[str, str] = {}
+    for c in commits:
+        for key, value in c.trailers:
+            zakon_id, sep, stamp = value.rpartition("/ed")  # 254к/96-ВР/ed19960628
+            if key == "Edition" and sep:
+                out[zakon_id] = f"ed{stamp}"
+    return out
 
 
 @dataclass(frozen=True)
@@ -74,7 +97,7 @@ def unmerged_bills(repo: Path) -> list[BillBranch]:
         message = git(repo, "log", "-1", "--format=%B", tip).decode("utf-8")
         trailers = dict(parse_trailers(message))
         conv, _, number = trailers.get("Bill", "").partition("/")
-        registered = trailers.get("Registered")
+        registered = trailers.get("Registered", "")
         bills.append(
             BillBranch(
                 ref,
@@ -82,7 +105,7 @@ def unmerged_bills(repo: Path) -> list[BillBranch]:
                 int(conv) if conv.isdigit() else 0,
                 number,
                 trailers.get("Status", ""),
-                date.fromisoformat(registered) if registered else None,
+                parse_day(registered),
                 message,
             )
         )
@@ -99,13 +122,27 @@ def bill_banner(bill: BillBranch) -> str:
     )
 
 
+def is_previous_export(out: Path) -> bool:
+    """``out/manifest.json`` is a manifest written by :func:`export`."""
+    try:
+        manifest = json.loads((out / MANIFEST).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(manifest, dict)
+        and manifest.get("sources") == SOURCES
+        and isinstance(manifest.get("commit"), str)
+        and "in_force" in manifest
+    )
+
+
 def _prepare_out(out: Path) -> None:
     """``out`` must be absent, empty or a previous export (it is then replaced)."""
     if out.exists():
         if not out.is_dir():
             raise ExportError(f"{out} is not a directory")
         if any(out.iterdir()):
-            if not (out / MANIFEST).is_file():
+            if not is_previous_export(out):
                 raise ExportError(f"{out} is not empty and is not a previous export")
             shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -119,6 +156,19 @@ def _extract(repo: Path, rev: str, out: Path, paths: list[str] | None = None) ->
     return names
 
 
+def _zakon_ids(out: Path, codes: list[str]) -> set[str]:
+    """zakon ids named in ``codes/<slug>/_meta.yaml`` of the exported codes."""
+    ids: set[str] = set()
+    for slug in codes:
+        try:
+            meta = yaml.safe_load((out / "codes" / slug / "_meta.yaml").read_text("utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        value = meta.get("zakon_id") if isinstance(meta, dict) else None
+        ids.update([value] if isinstance(value, str) else value or [])
+    return ids
+
+
 def export(repo: Path, at: date, out: Path, *, with_bills: bool = False) -> ExportResult:
     """Write the ``main`` tree in force on ``at`` into ``out`` with ``manifest.json``.
 
@@ -127,21 +177,30 @@ def export(repo: Path, at: date, out: Path, *, with_bills: bool = False) -> Expo
     it is not law.
     """
     try:
-        sha = commit_at(repo, at)
+        commits = commits_at(repo, at)
     except CheckError as e:
         raise ExportError(str(e)) from e
-    if sha is None:
+    if not commits:
         raise ExportError(f"no commit of {MAIN} is in force on {at.isoformat()}")
-    commit = next(c for c in main_log(repo) if c.sha == sha)
+    commit = commits[-1]
+    sha = commit.sha
     _prepare_out(out)
-    names = _extract(repo, sha, out)
+    try:
+        names = _extract(repo, sha, out)
+    except CheckError as e:
+        raise ExportError(str(e)) from e
     codes = sorted({n.split("/")[1] for n in names if n.startswith("codes/") and n.count("/") > 1})
     result = ExportResult(sha, in_force_of(commit), codes, len(names))
+    # the edition of each document still in the tree (a repealed code's folder is gone)
+    exported_ids = _zakon_ids(out, codes)
+    result.editions = {z: e for z, e in latest_editions(commits).items() if z in exported_ids}
     if with_bills:
         for bill in sorted(unmerged_bills(repo), key=lambda b: (b.convocation, b.ref)):
             if bill.registered and bill.registered > at:
                 continue
-            changed = git(repo, "diff-tree", "--no-commit-id", "-r", "-z", "--name-only", bill.tip)
+            changed = git(
+                repo, "diff-tree", "--root", "--no-commit-id", "-r", "-z", "--name-only", bill.tip
+            )
             for path in changed.decode("utf-8").split("\x00"):
                 if not (path.startswith("bills/") and path.endswith(".md")):
                     continue
@@ -155,6 +214,7 @@ def export(repo: Path, at: date, out: Path, *, with_bills: bool = False) -> Expo
         "commit": sha,
         "in_force": result.in_force.isoformat() if result.in_force else None,
         "codes": codes,
+        "editions": result.editions,
         "files": result.files,
         "sources": SOURCES,
     }

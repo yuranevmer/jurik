@@ -125,8 +125,7 @@ def test_meta_yaml_round_trip():
         "adopted": date(2002, 1, 10),
         "source_url": "https://zakon.rada.gov.ua/laws/show/2947-14",
         "status": "in_force",
-        "edition_date": date(2002, 1, 10),
-    }
+    }  # no edition date: it would change on every edition (see jurik.build.history)
 
 
 @pytest.fixture(scope="module")
@@ -263,7 +262,7 @@ def test_two_documents_render_into_one_folder():
         "https://zakon.rada.gov.ua/laws/show/80731-10",
         "https://zakon.rada.gov.ua/laws/show/80732-10",
     ]
-    assert meta["edition_date"] == date(2024, 3, 5)
+    assert "edition_date" not in meta
 
 
 def test_same_file_from_two_documents_is_an_error():

@@ -15,7 +15,6 @@ from jurik.build.history import (
     plan_linear,
     reason_of,
     sources_from_cache,
-    write_linear,
     write_steps,
 )
 from jurik.build.message import parse_trailers
@@ -88,16 +87,14 @@ def test_linear_steps_and_shared_bases_merge_across_codes():
     assert set(joint.changes.modified) == {
         "codes/family/01-hlava-1/art-0002.md",
         "codes/tax/01-hlava-1/art-0001.md",
-        "codes/family/_meta.yaml",
-        "codes/tax/_meta.yaml",
-    }
+    }  # _meta.yaml has no edition date: it does not change with every edition
     assert ("In-force", "2011-01-01") in trailers(joint)
     assert [v for k, v in trailers(joint) if k == "Edition"] == [
         "2755-17/ed20110101",
         "2947-14/ed20110101",
     ]
     assert steps[3].author.name == "Апарат Верховної Ради України"
-    assert steps[0].author.name == steps[0].committer.name == "Верховна Рада України"
+    assert steps[0].author.name == "Верховна Рада України"
     assert all(s.author.when == s.date for s in steps)
 
 
@@ -185,7 +182,7 @@ def test_write_linear_repo_matches_last_render(tmp_path):
     ]
     steps = plan_linear([CodeSource(FAMILY, {"2947-14": eds})], load)
     stream = Stream()
-    write_linear(steps, stream)
+    write_steps(steps, stream)
     repo = tmp_path / "laws"
     run(stream, repo)
     log = git(
@@ -539,3 +536,208 @@ def test_bills_limit(tmp_path):
     assert [s.ref for s in steps if s.reason == "bill"] == ["bill/4/1000"]
     steps, _ = rejected_history(tmp_path, bills_limit=0)
     assert not [s for s in steps if s.reason == "bill"]
+
+
+# --- branch bases, stages and names ------------------------------------------------------
+
+
+def _merge_and_branch_diffs(repo, merge_rev):
+    branch = git(repo, "diff", "--raw", "--no-renames", f"{merge_rev}^2^", f"{merge_rev}^2")
+    merge = git(repo, "diff", "--raw", "--no-renames", f"{merge_rev}^1", merge_rev)
+    return sorted(branch.splitlines()), sorted(merge.splitlines())
+
+
+def test_intermediate_law_on_same_file_moves_branch_base(tmp_path):
+    """Law B registered before law A, both change art. 1: B's branch starts after A's
+    merge, so its diff is only B's change and `git log -- art-0001.md` lists both laws."""
+    load = Loader()
+    eds = [
+        load.add(ed("2947-14", date(2002, 1, 10)), ("1", "a0"), ("2", "b0")),
+        load.add(ed("2947-14", date(2003, 7, 1), "100-15"), ("1", "a1 (A)"), ("2", "b0")),
+        load.add(ed("2947-14", date(2004, 1, 1), "200-15"), ("1", "a1 (A) + (B)"), ("2", "b0")),
+    ]
+    index = LawIndex(
+        by_law={
+            "100-15": law("100-15", BillRef(4, "1"), date(2003, 3, 1), date(2003, 6, 1)),
+            "200-15": law("200-15", BillRef(4, "2"), date(2002, 6, 1), date(2003, 12, 1)),
+        }
+    )
+    steps = plan_full([CodeSource(FAMILY, {"2947-14": eds})], load, index=index)
+    b_branch = next(s for s in steps if s.ref == "bill/4/2")
+    assert steps[b_branch.parents[0]].kind == "merge"  # A's merge, not the initial commit
+    stream = Stream()
+    write_steps(steps, stream)
+    repo = tmp_path / "laws"
+    run(stream, repo)
+    branch, merge = _merge_and_branch_diffs(repo, "main")
+    assert branch == merge
+    subjects = git(repo, "log", "--format=%s", "main", "--", ART.format(1)).splitlines()
+    assert len([s for s in subjects if s.startswith("Закон")]) == 2  # both merges listed
+    blame = git(repo, "blame", "--line-porcelain", "main", "--", ART.format(1))
+    assert "Законопроект № 2" in blame
+
+
+def test_branch_keeps_registration_base_for_untouched_paths(tmp_path):
+    steps, repo, _, _ = full_history(tmp_path)
+    for back in range(1, 6):
+        if len(git(repo, "log", "-1", "--format=%P", f"main~{back}").split()) == 2:
+            branch, merge = _merge_and_branch_diffs(repo, f"main~{back}")
+            assert branch == merge
+
+
+def test_later_stage_rebased_when_tip_is_stale(tmp_path):
+    """Stage 2 of law A changes a file that law B changed after A's stage 1: the stage 2
+    commit starts from main (which contains stage 1), not from A's stale tip."""
+    load = Loader()
+    eds = [
+        load.add(ed("2947-14", date(2002, 1, 10)), ("1", "a0"), ("2", "b0")),
+        load.add(ed("2947-14", date(2003, 7, 1), "100-15"), ("1", "a1"), ("2", "b0")),
+        load.add(ed("2947-14", date(2003, 9, 1), "200-15"), ("1", "a1"), ("2", "b1")),
+        load.add(ed("2947-14", date(2004, 1, 1), "100-15"), ("1", "a1"), ("2", "b2")),
+    ]
+    index = LawIndex(
+        by_law={
+            "100-15": law("100-15", BillRef(4, "1"), date(2003, 3, 1), date(2003, 6, 1)),
+            "200-15": law("200-15", BillRef(4, "2"), date(2003, 4, 1), date(2003, 8, 1)),
+        }
+    )
+    steps = plan_full([CodeSource(FAMILY, {"2947-14": eds})], load, index=index)
+    stage2 = [s for s in steps if s.ref == "bill/4/1"][1]
+    assert stage2.stage == 2
+    assert steps[stage2.parents[0]].ref == "main"
+    stream = Stream()
+    write_steps(steps, stream)
+    repo = tmp_path / "laws"
+    run(stream, repo)
+    branch, merge = _merge_and_branch_diffs(repo, "main")
+    assert branch == merge
+    tips = git(repo, "rev-list", "bill/4/1").split()
+    assert (
+        len([t for t in tips if "Законопроект № 1" in git(repo, "log", "-1", "--format=%s", t)])
+        == 2
+    )
+
+
+def test_same_date_overlapping_bases_are_one_step():
+    """Code A's edition has bases [X], code B's [X, Y] on the same date: one merge."""
+    load = Loader()
+    f1 = load.add(ed("2947-14", date(2002, 1, 10)), ("1", "a"))
+    f2 = load.add(ed("2947-14", date(2010, 1, 1), "999-17"), ("1", "b"))
+    t1 = load.add(ed("2755-17", date(2002, 1, 10)), ("1", "c"))
+    t2 = load.add(ed("2755-17", date(2010, 1, 1), "999-17", "1001-17"), ("1", "d"))
+    steps = plan_full(
+        [CodeSource(FAMILY, {"2947-14": [f1, f2]}), CodeSource(TAX, {"2755-17": [t1, t2]})],
+        load,
+    )
+    merges = [s for s in steps if s.kind == "merge"]
+    assert len(merges) == 1
+    assert merges[0].bases == ("999-17", "1001-17")  # numeric order, not string order
+    assert merges[0].branch == "bill/law/999-17"
+    assert set(merges[0].codes) == {"family", "tax"}
+    assert merges[0].stage == 1
+
+
+def test_law_sort_key_numeric():
+    from jurik.build.history import law_sort_key
+
+    assert sorted(["1001-20", "999-20", "5-19", "254к/96-вр"], key=law_sort_key) == [
+        "254к/96-вр",
+        "5-19",
+        "999-20",
+        "1001-20",
+    ]
+
+
+def test_two_laws_of_one_bill_get_two_branches():
+    load = Loader()
+    eds = [
+        load.add(ed("2947-14", date(2002, 1, 10)), ("1", "a0")),
+        load.add(ed("2947-14", date(2003, 1, 1), "100-15"), ("1", "a1")),
+        load.add(ed("2947-14", date(2004, 1, 1), "200-15"), ("1", "a2")),
+    ]
+    same_bill = BillRef(4, "1234")
+    index = LawIndex(
+        by_law={
+            "100-15": law("100-15", same_bill, date(2002, 6, 1), date(2002, 12, 1)),
+            "200-15": law("200-15", same_bill, date(2002, 6, 1), date(2003, 12, 1)),
+        }
+    )
+    steps = plan_full([CodeSource(FAMILY, {"2947-14": eds})], load, index=index)
+    assert [(s.branch, s.stage) for s in steps if s.kind == "merge"] == [
+        ("bill/4/1234", 1),
+        ("bill/4/1234-2", 1),
+    ]
+
+
+def test_full_mode_law_touching_two_codes_and_repeal(tmp_path):
+    commercial = Code("commercial", ("436-15",), "Господарський кодекс", repealed=date(2020, 1, 1))
+    load = Loader()
+    f1 = load.add(ed("2947-14", date(2002, 1, 10)), ("1", "a"))
+    f2 = load.add(ed("2947-14", date(2010, 1, 1), "100-17"), ("1", "b"))
+    c1 = load.add(ed("436-15", date(2004, 1, 1)), ("1", "x"))
+    c2 = load.add(ed("436-15", date(2010, 1, 1), "100-17"), ("1", "y"))
+    steps = plan_full(
+        [
+            CodeSource(FAMILY, {"2947-14": [f1, f2]}),
+            CodeSource(commercial, {"436-15": [c1, c2]}),
+        ],
+        load,
+    )
+    branch = next(s for s in steps if s.kind == "branch")
+    assert {p.split("/")[1] for p in branch.changes.modified} == {"family", "commercial"}
+    assert branch.changes is not steps[steps.index(branch) + 1].changes  # copied
+    assert [s.reason for s in steps if s.ref == "main"][-1] == "repealed"
+    stream = Stream()
+    write_steps(steps, stream)
+    repo = tmp_path / "laws"
+    run(stream, repo)
+    assert "codes/commercial" not in git(repo, "ls-tree", "-r", "--name-only", "main")
+    assert "codes/commercial" in git(repo, "ls-tree", "-r", "--name-only", "main~1")
+
+
+def test_rejected_ref_collision_gets_suffix_and_no_registration_uses_head(tmp_path):
+    family = Code("family", ("2947-14",), "Сімейний кодекс України", (r"сімейн\w* кодекс",))
+    load = Loader()
+    eds = [
+        load.add(ed("2947-14", date(2002, 1, 10)), ("1", "a0")),
+        load.add(ed("2947-14", date(2003, 7, 1), "100-15"), ("1", "a1")),
+    ]
+    adopted = law("100-15", BillRef(4, "1234"), date(2003, 3, 1), date(2003, 6, 1))
+    index = LawIndex(by_law={"100-15": adopted})
+    index.bills = {
+        BillRef(4, "1234"): adopted,
+        BillRef(4, "1234-Д"): rejected("1234-Д", None),  # same ref as …/1234-д below
+        BillRef(4, "1234-д"): rejected("1234-д", None),
+        BillRef(4, "1234-x"): rejected("1234-x", date(2002, 5, 1)),
+    }
+    steps = plan_full([CodeSource(family, {"2947-14": eds})], load, index=index)
+    bills = [s for s in steps if s.reason == "bill"]
+    assert [s.ref for s in bills] == ["bill/4/1234-x", "bill/4/1234-d", "bill/4/1234-d-2"]
+    head = max(i for i, s in enumerate(steps) if s.ref == "main")
+    assert bills[1].parents == (head,) and bills[2].parents == (head,)
+    assert bills[0].parents == (0,)
+
+
+def test_sources_from_cache_bad_card_and_in_force(tmp_path):
+    client = _cache_card(tmp_path, "2947-14", [20020110])
+    write_gz(client.card_path("2947-14"), "not json")
+    with pytest.raises(BuildError, match="family: card is not JSON"):
+        sources_from_cache([FAMILY], client)
+    card = {
+        "nreg": "2947-14",
+        "orgdat": 20020110,
+        "eds": [{"datred": 20020110}],
+        "hist": [{"podid": 4, "poddat": 20020110}, {"podid": 1, "poddat": 20040101}],
+    }
+    write_gz(client.card_path("2947-14"), json.dumps(card))
+    write_gz(client.edition_path("2947-14", "20020110"), "<html></html>")
+    [src] = sources_from_cache([FAMILY], client, today=date(2026, 1, 1))
+    assert src.in_force == {"2947-14": date(2004, 1, 1)}
+    client.close()
+
+
+def test_cached_tree_loader_missing_file_is_build_error(tmp_path):
+    with ZakonClient(tmp_path) as client:
+        load = cached_tree_loader(client)
+        with pytest.raises(BuildError, match="ed20020110"):
+            load(ed("2947-14", date(2002, 1, 10)))

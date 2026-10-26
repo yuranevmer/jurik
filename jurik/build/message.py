@@ -104,8 +104,13 @@ def law_trailers(
     return out
 
 
+def edition_id(e: Edition) -> str:
+    """Value of the ``Edition:`` trailer: ``<zakon_id>/edYYYYMMDD``."""
+    return f"{e.zakon_id}/ed{e.date:%Y%m%d}"
+
+
 def edition_trailers(editions: Sequence[Edition]) -> list[Trailer]:
-    return [("Edition", f"{e.zakon_id}/ed{e.date:%Y%m%d}") for e in editions]
+    return [("Edition", edition_id(e)) for e in editions]
 
 
 def source_trailers(bases: Sequence[str], editions: Sequence[Edition]) -> list[Trailer]:

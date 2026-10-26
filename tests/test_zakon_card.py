@@ -190,3 +190,28 @@ def test_card_errors():
         parse_card(json.dumps({"nreg": "2755-17", "eds": [{"datred": 20101202}]}), "2947-14")
     with pytest.raises(CardParseError, match="bad date"):
         parse_card(json.dumps({"nreg": "2947-14", "eds": [{"datred": 2002}]}), "2947-14")
+
+
+def test_entry_into_force_from_hist_and_history_string():
+    base = {"nreg": "2755-17", "eds": [{"datred": 20101202}, {"datred": 20110101}]}
+    hist = [{"podid": 4, "poddat": 20101202}, {"podid": 1, "poddat": 20110101}]
+    card = parse_card(json.dumps({**base, "hist": hist}), "2755-17", today=TODAY)
+    assert card.in_force == date(2011, 1, 1)
+    history = "20101202:4:|20110101:0:2856-17|20110101:1:"
+    card = parse_card(json.dumps({**base, "history": history}), "2755-17", today=TODAY)
+    assert card.in_force == date(2011, 1, 1)
+    assert parse_card(json.dumps(base), "2755-17", today=TODAY).in_force is None
+
+
+def test_duplicate_edition_date_keeps_all_bases():
+    card = {
+        "nreg": "2947-14",
+        "eds": [
+            {"datred": 20020110},
+            {"datred": 20050101, "pidstava": "100-15"},
+            {"datred": 20050101, "pidstava": "200-15, 100-15"},
+        ],
+    }
+    info = parse_card(json.dumps(card), "2947-14", today=TODAY)
+    assert [e.bases for e in info.editions] == [[], ["100-15", "200-15"]]
+    assert info.editions[1].kind == "law"

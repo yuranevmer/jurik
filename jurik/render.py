@@ -142,7 +142,6 @@ def meta_yaml(trees: Sequence[DocTree], code: Code, *, adopted: date | None, sta
         if len(ids) == 1
         else [SOURCE_URL.format(i) for i in ids],
         "status": status,
-        "edition_date": max(t.edition.date for t in trees),
     }
     return yaml.safe_dump(meta, allow_unicode=True, sort_keys=False).encode("utf-8")
 
