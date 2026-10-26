@@ -3,6 +3,7 @@
 Fixtures are trimmed fragments of cached OpenData editions (``*_build_fragment.html``).
 """
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -24,6 +25,9 @@ ADMIN_PROCEDURE = "2747-15_ed20170101_build_fragment.html"
 CRIMINAL = "2341-14_ed20260918_build_fragment.html"
 KUPAP_PARTS = "80731-10_ed20170507_build_fragment.html"
 KUPAP_NOTE = "80731-10_ed20120119_build_fragment.html"
+LABOUR_SUP = "322-08_ed20261023_build_fragment.html"
+HOUSING = "5464-10_ed20260215_build_fragment.html"
+KUPAP_SUP = "80731-10_ed20170507_sup_build_fragment.html"
 
 
 def paras_of(name: str) -> list[Para]:
@@ -238,4 +242,42 @@ def test_kupap_general_and_special_part_inside_section():
     special = next(p for p in files if p.endswith("/02-osoblyva-chastyna/provisions.md"))
     assert files[special].decode().startswith("# II. ОСОБЛИВА ЧАСТИНА")
     res = verify_paragraphs(paras, files)
+    assert res.ok, res.missing[:5]
+
+
+def test_labour_superscript_indices_are_glued():
+    # OpenData renders 3¹ as «3 - 1 )» and a linked 166¹⁰ as «<a>166</a><a> - 10</a>»; both
+    # read like ranges in the markdown
+    paras = paras_of(LABOUR_SUP)
+    tree = tree_of(paras, "322-08")
+    art = next(a for a in articles(tree) if a.number == "41")
+    assert "\n3-1) вчинення домашнім працівником" in art.body
+    assert "статтями 166-10, 166-12, 188-44 Кодексу" in art.body
+    assert not re.search(r"\d - \d", art.body)
+    assert "пунктами 1-3, 4-5, 7" in art.body  # source hyphens stay
+    files = render(tree, Code("labour", ("322-08",), "КЗпП"))
+    md = next(c for p, c in files.items() if p.endswith("/art-0041.md")).decode()
+    assert "3-1) вчинення" in md and "166-10" in md
+    res = verify_paragraphs(paras, files)
+    assert res.ok, res.missing[:5]
+
+
+def test_housing_spaced_ranges_stay():
+    paras = paras_of(HOUSING)
+    tree = tree_of(paras, "5464-10")
+    body = {a.number: a.body for a in articles(tree)}
+    assert "в статтях 51 - 53 цього Кодексу" in body["101"]
+    assert "статтями 73 - 76, 79 - 83, 85" in body["123"]
+    assert "(статті 91 - 94, 97)" in body["144"]
+    res = verify_paragraphs(paras, render(tree, Code("housing", ("5464-10",), "ЖК")))
+    assert res.ok, res.missing[:5]
+
+
+def test_kupap_range_between_split_superscripts():
+    # «<a>127</a><a> - 1</a><a> - 128</a><a> - 1</a>» is the range 127¹–128¹
+    paras = paras_of(KUPAP_SUP)
+    tree = tree_of(paras, "80731-10")
+    art = next(a for a in articles(tree) if a.number == "121")
+    assert "у статтях 121-126, 127-1 - 128-1, частинах" in art.body
+    res = verify_paragraphs(paras, render(tree, Code("admin-offences", ("80731-10",), "КУпАП")))
     assert res.ok, res.missing[:5]

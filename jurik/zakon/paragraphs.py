@@ -52,16 +52,43 @@ class Para:
 # --- text normalisation --------------------------------------------------------
 
 _WS = re.compile(r"\s+")
-# OpenData renders a superscript index as "39 - 1 ." -> "39-1."; a two-level index
-# (КК «Стаття 96 - 10-1 .») -> "96-10-1."
-_SUP_INDEX = re.compile(r"(\d+) - (\d+(?:-\d+)?) \.")
+# OpenData has no superscript markup: an index 39¹ is rendered as "39 - 1 " (spaces on both
+# sides, so it reads like a range). A space before punctuation marks the superscript:
+# "Стаття 39 - 1 ." -> "39-1.", point "3 - 1 )" -> "3-1)", "статті 49 - 2 , " -> "49-2, ";
+# a two-level index (КК «Стаття 96 - 10-1 .») -> "96-10-1.". A genuine range never has a
+# space before punctuation («статтями 73 - 76, 79 - 83», «у 2012 - 2015 роках» stay).
+# after a hyphen only a point number continues («…2.1-39 - 2 .3.2.4»): «212-11 - 212-20 )»
+# is a range
+_SUP_INDEX = re.compile(r"(?<![\d,])(?:(?<!-)|(?=[\d -]+ \.\d))(\d+) - (\d+(?:-\d+)?) ([.,;:)])")
+# Before a word the spacing does not tell a superscript from a range: «статтею 6 - 1 згідно»,
+# «статтями 255 - 1 і 255 - 2 цього», but «статтях 51 - 53 цього», «у 2012 - 2015 роках».
+# A range always grows (M > N), so "N - M" with M <= N is an index; M > N is an index only
+# right after a reference word that is unambiguously singular («пунктом 13 - 14 частини»).
+# A dotted base compares its last number and never takes the singular-word exception
+# («підпунктом 14.1.1 - 1 згідно» is an index, «підпунктах 54.3.1 - 54.3.6» a range).
+_SUP_BEFORE_WORD = re.compile(r"(?<![\w,.-])((?:\d+\.)*)(\d+) - (\d+)(-\d+)?(?= [^\s-]| - |$)")
+_SINGULAR_REF = re.compile(
+    r"(?:\b(?:стат(?:тя|тю|тею)|(?:під)?пункт(?:ом|у|і)?|глав(?:а|у|ою|і)|"
+    r"(?:під)?розділ(?:у|ом|і)?) )$",
+    re.I,
+)
 _INDEX = r"\d+(?:\s*-\s*\d+){0,2}"
+
+
+def _join_sup_before_word(m: re.Match[str]) -> str:
+    dotted, base, sup, sub = m[1], int(m[2]), int(m[3]), m[4] or ""
+    if sup < base or (
+        not sub and (sup == base or (not dotted and _SINGULAR_REF.search(m.string, 0, m.start())))
+    ):
+        return f"{m[1]}{m[2]}-{m[3]}{sub}"
+    return m[0]
 
 
 def normalize_text(text: str) -> str:
     """Collapse whitespace (incl. nbsp), glue superscript indices, keep apostrophes as is."""
     text = _WS.sub(" ", text.replace("\xa0", " ")).strip()
-    return _SUP_INDEX.sub(r"\1-\2.", text)
+    text = _SUP_INDEX.sub(r"\1-\2\3", text)
+    return _SUP_BEFORE_WORD.sub(_join_sup_before_word, text)
 
 
 def _norm_index(number: str) -> str:
@@ -204,9 +231,54 @@ class _Block:
     is_table: bool = False
 
 
+# a linked superscript is a separate link: «<a>статтями 166</a><a> - 10</a>»
+_SUP_LINK = re.compile(r"^ +- +(\d+)")
+# a dotted base («підпунктами 39.2.1.1») is followed by a range («- 39.2.1.3») unless the index
+# does not grow (Податковий кодекс «пункті 43.4</a><a> - 1»)
+_DOTTED_BASE = re.compile(r"\d\.(\d+)$")
+
+
+def _text_chunks(el):
+    """``(node, attr)`` for every text chunk of ``el`` in document order."""
+    if isinstance(el.tag, str):  # comments / processing instructions carry no text
+        yield el, "text"
+        for child in el:
+            yield from _text_chunks(child)
+    yield el, "tail"
+
+
+def _join_split_superscripts(el) -> None:
+    """Glue a superscript index that the source put into its own element to its base:
+    «<a>статтями 166</a><a> - 10</a>» -> «статтями 166-10». A range is one text chunk
+    («<a>статтями 73 - 76</a>»), so it is not touched; a dash right after a glued index is
+    a range again («<a>127</a><a> - 1</a><a> - 128</a><a> - 1</a>» -> «127-1 - 128-1»)."""
+    prev = ""
+    after_sup = False
+    for node, attr in _text_chunks(el):
+        if node is el and attr == "tail":
+            break
+        text = getattr(node, attr) or ""
+        if not text:
+            continue
+        sup = attr == "text" and _SUP_LINK.match(text)
+        base = _DOTTED_BASE.search(prev)
+        if (
+            sup
+            and prev[-1:].isdigit()
+            and not after_sup
+            and (not base or int(sup[1]) <= int(base[1]))
+        ):
+            text = node.text = _SUP_LINK.sub(r"-\1", text, count=1)
+            after_sup = text[1:].isdigit()  # the whole chunk is the index
+        else:
+            after_sup = False
+        prev = text
+
+
 def _element_text(el) -> str:
     for br in el.iter("br"):
         br.tail = " " + (br.tail or "")
+    _join_split_superscripts(el)
     return normalize_text(el.text_content())
 
 

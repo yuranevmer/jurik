@@ -83,8 +83,7 @@ def _short(text: str, n: int = 80) -> str:
     return text if len(text) <= n else text[: n - 1] + "…"
 
 
-def _edition_paras(html: str | Sequence[str]) -> list[Para]:
-    htmls = [html] if isinstance(html, str) else list(html)
+def _edition_paras(htmls: Sequence[str]) -> list[Para]:
     return [p for h in htmls for p in extract_paragraphs(h) if p.kind in _TEXT_KINDS]
 
 
@@ -119,12 +118,12 @@ def verify_paragraphs(paras: Sequence[Para], files: Mapping[str, bytes]) -> Veri
     return result
 
 
-def verify_edition(files: Mapping[str, bytes], html: str | Sequence[str]) -> VerifyResult:
-    """Check that ``files`` (``render`` output) hold exactly the text of the edition ``html``.
+def verify_edition(files: Mapping[str, bytes], htmls: Sequence[str]) -> VerifyResult:
+    """Check that ``files`` (``render`` output) hold exactly the text of the edition.
 
-    ``html`` may be several documents rendered into one code folder (КУпАП).
+    ``htmls`` are the documents rendered into one code folder (several for КУпАП).
     """
-    return verify_paragraphs(_edition_paras(html), files)
+    return verify_paragraphs(_edition_paras(htmls), files)
 
 
 def _blocks(text: str) -> list[str]:

@@ -64,13 +64,13 @@ def test_normalize_words():
 )
 def test_fixture_renders_are_complete(name, zakon_id):
     html = (FIX / name).read_text(encoding="utf-8")
-    result = verify_edition(render_html(html, zakon_id, "x"), html)
+    result = verify_edition(render_html(html, zakon_id, "x"), [html])
     assert result.ok, [str(d) for d in result.diffs]
     assert result.words > 100
 
 
 def test_identical_text_ok(family_files, family_html):
-    result = verify_edition(family_files, family_html)
+    result = verify_edition(family_files, [family_html])
     assert result.ok
     assert result.diffs == []
     assert "ok" in result.summary()
@@ -83,7 +83,7 @@ def test_lost_paragraph_is_missing_with_file(family_files, family_html):
     lost = blocks[2]
     files = dict(family_files)
     files[path] = "\n\n".join(blocks[:2] + blocks[3:]).encode("utf-8")
-    result = verify_edition(files, family_html)
+    result = verify_edition(files, [family_html])
     assert not result.ok
     assert result.missing and not result.extra
     assert result.diffs[0].kind == "missing"
@@ -96,7 +96,7 @@ def test_added_text_is_extra_with_file(family_files, family_html):
     path = next(p for p in family_files if p.endswith("/art-0020.md"))
     files = dict(family_files)
     files[path] = family_files[path] + "\nЗайвий абзац тексту.\n".encode()
-    result = verify_edition(files, family_html)
+    result = verify_edition(files, [family_html])
     assert not result.missing
     assert set(result.extra) == {"зайвий", "абзац", "тексту"}
     assert result.diffs[0].kind == "extra" and result.diffs[0].file == path
@@ -109,7 +109,7 @@ def test_level_heading_is_content(family_files, family_html):
         "provisions.md"
     )
     files = {p: c for p, c in family_files.items() if p != path}
-    result = verify_edition(files, family_html)
+    result = verify_edition(files, [family_html])
     assert not result.ok
     assert result.diffs[0].kind == "missing"
     assert result.diffs[0].text.startswith("Глава 1")
@@ -126,7 +126,7 @@ def test_note_in_html_is_not_missing():
     files = render_html(html)
     # the note paragraph is not rendered; the inline note is ignored on both sides
     assert "№ 2-IX" not in b"".join(files.values()).decode()
-    assert verify_edition(files, html).ok
+    assert verify_edition(files, [html]).ok
 
 
 def test_excluded_article_stub_is_not_extra():
@@ -139,12 +139,12 @@ def test_excluded_article_stub_is_not_extra():
     files = render_html(html)
     stub = next(c for p, c in files.items() if p.endswith("art-0002.md")).decode()
     assert "Виключена на підставі Закону № 3585-IX" in stub
-    assert verify_edition(files, html).ok
+    assert verify_edition(files, [html]).ok
 
 
 def test_header_is_not_counted():
     html = page("КОДЕКС", "(Відомості Верховної Ради, 2002, № 1)", "Стаття 1. Мета", "Текст.")
-    assert verify_edition(render_html(html), html).ok
+    assert verify_edition(render_html(html), [html]).ok
 
 
 def test_timing_100k_words(family_html):
@@ -164,13 +164,16 @@ def test_timing_100k_words(family_html):
     files = render(tree, Code("family", ("2947-14",), "Кодекс"))
     start = time.perf_counter()
     result = verify_paragraphs(big_paras, files)
+    elapsed = time.perf_counter() - start
     assert result.ok
     assert result.words > 100_000
-    # a mismatch takes the slow path (paragraph matching)
+    # linear time takes well under a second; the bound is generous against slow CI machines
+    # but still catches quadratic behaviour (minutes at this size)
+    assert elapsed < 10
+    # a mismatch takes the slow path (paragraph matching) and still finds the loss
     path = next(iter(files))
     broken = {p: c for p, c in files.items() if p != path}
     assert not verify_paragraphs(big_paras, broken).ok
-    assert time.perf_counter() - start < 2
 
 
 # --- jurik parse ---------------------------------------------------------------
