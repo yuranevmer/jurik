@@ -551,15 +551,26 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 - Modify: `codes.yaml` при необходимости
 
 - ⚠️ (Task 12) заполнить `repealed: YYYY-MM-DD` и `repealed_by: <nreg>` у `commercial` в `codes.yaml` по карточке 436-15 (иначе папка не удаляется); `jurik build` пересоздаёт `--out` целиком и требует в кеше все in-force редакции выбранных кодексов
-- [ ] `jurik rada` для всех созывов; `jurik build --code family`, затем `--code constitution`, затем все; Податковий последним; проблемы фиксируются фикстурой + тестом (➕ подзадачи сюда)
+- [x] `jurik rada` для всех созывов; `jurik build --code family`, затем `--code constitution`, затем все; Податковий последним; проблемы фиксируются фикстурой + тестом (➕ подзадачи сюда)
+  - [x] ➕ ВК: процитированные статьи в «Прикінцеві та перехідні положення» (повтор номера в уровне прикінцевих/перехідних → текст provisions); римские `XXXX`/`XXXXII` (`roman_to_int` принимает `X{0,4}`)
+  - [x] ➕ МК: кириллические І/Х в римских номерах розділів без точки (`Розділ XVІ МИТНА СТАТИСТИКА`) → нормализация в латиницу
+  - [x] ➕ ЗК: `Глава 5 Землі …` без точки со строчным названием → заголовок главы
+  - [x] ➕ КЗпП: главы `III-А`, `ГЛАВА III-Б` (римский номер + буква, папка `03-a-…`); редакции 1996–1998 с указом «Про затвердження Кодексу … Стаття 1» перед кодексом → преамбула
+  - [x] ➕ КАС 2016–2017: две статьи `183-7` подряд в источнике → `Article.variant`, файл `art-0183-7_2.md`
+  - [x] ➕ КК: двухуровневый индекс `Стаття 96 - 10-1 .`
+  - [x] ➕ КУпАП: примечание `{…}`, разорванное на два абзаца (66 редакций); «I. ЗАГАЛЬНА ЧАСТИНА»/«II. ОСОБЛИВА ЧАСТИНА» внутри розділу II → уровень ранга subsection
+  - [x] ➕ `codes.yaml`: `commercial` `repealed: 2025-08-28`, `repealed_by: "4196-20"` (карточка 436-15: запись `podid 3`)
+  - фикстуры `tests/fixtures/zakon/*_build_fragment.html`, тесты `tests/test_build_cases.py`
 - ⚠️ (Task 16) `jurik report` парсит все кешированные редакции всех кодексов (сбои → `report/parse-failures.md`), число коммитов `--first-parent main` и веток (merged / без merge) берёт из `--repo build/laws`, так что запускать после `jurik build`
-- [ ] зафиксировать время сборки, размер `.git`, число коммитов/веток, `report/coverage.md` в `docs/pilot-build.md`
-- [ ] run full test suite: `uv run pytest`
-- [ ] run tests - must pass before next task
+- [x] зафиксировать время сборки, размер `.git`, число коммитов/веток, `report/coverage.md` в `docs/pilot-build.md`
+- [x] run full test suite: `uv run pytest`
+- [x] run tests - must pass before next task
+- ✅ итог (Task 17): fetch 2 ч 29 мин (2847 in-force редакций, 520 МБ кеша, 0 ошибок); все 2847 редакций проходят проверку полноты. Финальная сборка `jurik build --bills-limit 500`: 1312 с, `.git` 78 МБ, 4083 коммита (1808 в `--first-parent main`: 25 initial, 1548 law, 227 multiple, 4 court, 3 unknown, 1 repealed), 2047 веток `bill/*` (1547 merged, из них 25 `bill/law/*`; 500 без merge), 1775 merge, `check_repo` 0 нарушений; `--bills-limit 0` = 294 с, `.git` 72 МБ. Житловий оставлен действующим (нет редакции утраты силы, статус «крім окремих положень»). Ветки не принятых: лимит 500 из 7362 (полный прогон ≈ 2–3 ч загрузок). Подробно: `docs/pilot-build.md`
 
 ### Task 18: Verify acceptance criteria
 
 - ⚠️ (Task 16) в `report/coverage.md` раздел «Repository» даёт число коммитов `--first-parent main` и веток `bill/*` (merged / без merge) из самого репозитория, число шагов плана = `build` печатает commits/branches/merges; `jurik export` берёт репозиторий из `--repo` (по умолчанию `build/laws`), `--with-bills` выгружает только законопроекты с `Registered:` ≤ `--at`
+- ⚠️ (Task 17) `build/laws` собран с `--bills-limit 500` (500 веток без merge: созывы III–IV), не со всеми 7362 не принятыми законопроектами; КАС 2016–2017 содержит файл-вариант `art-0183-7_2.md` (две статьи 183-7 в источнике, `Article.variant`); `codes/commercial/` удалён в `main` коммитом `Reason: repealed` 2025-08-28 — для `export --at 2015-01-01` он есть; Житловий остаётся в `main` (последняя редакция 2022-11-19)
 - [ ] `build/laws`: число коммитов `--first-parent main` = число шагов из отчёта; число веток `bill/*` = число законов с ветками + отклонённых
 - [ ] `git log --follow codes/tax/.../art-0014.md` показывает историю статьи с осмысленными сообщениями
 - ⚠️ (Task 14) `check.check_text`/`_main_files` читают дерево `main` (константа); для сверки на дату использовать `verify_edition` на файлах экспорта или параметризовать rev
@@ -571,6 +582,7 @@ jurik export  [--at DATE] [--with-bills] --out build/dataset/
 ### Task 19: [Final] Update documentation
 
 - [ ] `README.md`: назначение, команды CLI, как клонировать `laws` и читать историю (`git log --first-parent`, `git log --follow`), объяснение осей времени (committer date = принятие, `In-force:` = действие), пометка об источниках и обязательном указании источника данных
+- ⚠️ (Task 17) в раскладку добавлены: файл-вариант статьи `art-NNNN_2.md` (повтор номера статьи в источнике), уровень `subsection` с заголовком `# II. ОСОБЛИВА ЧАСТИНА` (КУпАП), буквенные суффиксы глав в папках `03-a-…` (КЗпП) — описать в README
 - [ ] `build/laws/README.md` генерируется builder'ом: структура, модель веток, поля сообщений, предупреждение про ветки `bill/*`
 - [ ] создать `CLAUDE.md` с конвенциями проекта (uv, pytest, фикстуры, сетевые тесты выключены)
 - [ ] move this plan to `docs/plans/completed/`
