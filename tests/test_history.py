@@ -451,6 +451,10 @@ def test_full_law_without_meta_and_court(tmp_path):
     assert git(repo, "log", "-1", "--format=%an|%ad", "--date=short", "bill/law/999-15") == (
         "Верховна Рада України|2006-01-01\n"
     )
+    # no initiator known: the merge is authored and committed by the Rada
+    assert git(repo, "log", "-1", "--format=%an|%cn", "main~1") == (
+        "Верховна Рада України|Верховна Рада України\n"
+    )
     assert ("Reason", "court") in parse_trailers(git(repo, "log", "-1", "--format=%B", "main"))
     assert git(repo, "log", "-1", "--format=%P", "main").count(" ") == 0
 
@@ -465,11 +469,12 @@ def test_full_authors_and_dates(tmp_path):
     )
     merge = git(repo, "log", "-1", fmt, "--date=iso", "main~4").strip()
     assert merge == (
-        "Верховна Рада України|rada@laws.invalid|2003-09-01 12:00:00 +0300|"
+        "Іван Петренко|petrenko-ivan-ivanovych@deputies.invalid|2003-09-01 12:00:00 +0300|"
         "Верховна Рада України|rada@laws.invalid|2003-09-01 12:00:00 +0300"
     )
-    body = git(repo, "log", "-1", "--format=%B", "bill/4/2000")
-    assert "Co-authored-by: Олена Коваль <koval-olena-petrivna@deputies.invalid>" in body
+    co_author = "Co-authored-by: Олена Коваль <koval-olena-petrivna@deputies.invalid>"
+    assert co_author in git(repo, "log", "-1", "--format=%B", "bill/4/2000")
+    assert co_author in git(repo, "log", "-1", "--format=%B", "main~4")
     trailers = parse_trailers(git(repo, "log", "-1", "--format=%B", "main~4"))
     assert ("In-force", "2003-10-01") in trailers
     assert ("Edition", "2947-14/ed20031001") in trailers

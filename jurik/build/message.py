@@ -200,8 +200,10 @@ def step_message(
     metas: dict[str, LawMeta | None],
     stage: int | None = None,
     unknown_bill: bool = False,
+    initiators: Sequence[Person] = (),
 ) -> str:
-    """Message of a commit of ``main``; ``stage`` (merge of a bill branch) adds ``Stage:``."""
+    """Message of a commit of ``main``; ``stage`` (merge of a bill branch) adds ``Stage:``;
+    ``initiators`` after the first (the merge's author) are ``Co-authored-by:``."""
     trailers = law_trailers(bases, metas, unknown_bill=unknown_bill)
     trailers.append((IN_FORCE, in_force.isoformat()))
     if stage is not None:
@@ -209,6 +211,7 @@ def step_message(
     trailers.append((REASON, reason))
     trailers += edition_trailers(editions)
     trailers += source_trailers(bases, editions)
+    trailers += co_authored_by(initiators)
     return format_message(
         subject_for(reason, bases, titles, metas), trailers, body_for(bases, metas)
     )
@@ -216,6 +219,11 @@ def step_message(
 
 def person_email(person: Person) -> str:
     return f"{person.slug}@deputies.invalid"
+
+
+def co_authored_by(initiators: Sequence[Person]) -> list[Trailer]:
+    """``Co-authored-by:`` for the initiators after the first (the commit's author)."""
+    return [(CO_AUTHORED_BY, f"{p.name} <{person_email(p)}>") for p in initiators[1:] if p.slug]
 
 
 def branch_message(
@@ -243,11 +251,7 @@ def branch_message(
     if meta and meta.registered:
         trailers.append((REGISTERED, meta.registered.isoformat()))
     trailers.append((STAGE, str(stage)))
-    trailers += [
-        (CO_AUTHORED_BY, f"{p.name} <{person_email(p)}>")
-        for p in (meta.initiators[1:] if meta else [])
-        if p.slug
-    ]
+    trailers += co_authored_by(meta.initiators if meta else ())
     return format_message(subject, trailers, body_for(bases, metas), require_in_force=False)
 
 
@@ -285,7 +289,5 @@ def rejected_bill_message(*, meta: LawMeta, titles: Sequence[str]) -> str:
         trailers.append((STATUS_DATE, meta.phase_date.isoformat()))
     if meta.card_url:
         trailers.append((SOURCE, meta.card_url))
-    trailers += [
-        (CO_AUTHORED_BY, f"{p.name} <{person_email(p)}>") for p in meta.initiators[1:] if p.slug
-    ]
+    trailers += co_authored_by(meta.initiators)
     return format_message(subject, trailers, body, require_in_force=False)

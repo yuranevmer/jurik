@@ -87,13 +87,18 @@ class Step:
     editions: list[Edition]
     codes: list[str]  # slugs of touched codes
     changes: ChangeSet
-    author: Ident  # also the committer
+    author: Ident
     message: str
     ref: str = MAIN
     parents: tuple[int, ...] = ()  # indices of parent steps in the plan; [0] is first parent
     kind: StepKind = "commit"
     stage: int | None = None  # stage of the law (branch commits and their merges)
     branch: str | None = None  # merges: the merged branch
+    committer: Ident | None = None  # None = ``author``
+
+    @property
+    def committed_by(self) -> Ident:
+        return self.committer or self.author
 
 
 @dataclass(order=True)
@@ -325,6 +330,7 @@ def _step(
     branch: str | None = None,
     editions: list[Edition] | None = None,
     changes: ChangeSet | None = None,
+    committer: Ident | None = None,
 ) -> Step:
     """A ``Step`` of group ``g``; ``editions``/``changes`` default to the group's."""
     return Step(
@@ -341,6 +347,7 @@ def _step(
         kind=kind,
         stage=stage,
         branch=branch,
+        committer=committer,
     )
 
 
@@ -473,6 +480,7 @@ class _Planner:
         *,
         stage: int | None = None,
         unknown_bill: bool = False,
+        meta: LawMeta | None = None,
     ) -> str:
         return step_message(
             reason=g.reason,
@@ -483,6 +491,7 @@ class _Planner:
             metas=metas,
             stage=stage,
             unknown_bill=unknown_bill,
+            initiators=meta.initiators if meta else (),
         )
 
     def commit(self, g: _Group, metas: dict[str, LawMeta | None]) -> None:
@@ -537,10 +546,19 @@ class _Planner:
                 stage=stage,
             )
         )
-        message = self._message(g, metas, stage=stage, unknown_bill=True)
-        rada = Ident(*RADA, adopted)
+        message = self._message(g, metas, stage=stage, unknown_bill=True, meta=meta)
+        # the merge is authored by the initiator and committed by the Rada on adoption day
         i = self._add(
-            _step(g, rada, message, parents=(*head, b), kind="merge", stage=stage, branch=ref)
+            _step(
+                g,
+                _initiator(meta, adopted),
+                message,
+                parents=(*head, b),
+                kind="merge",
+                stage=stage,
+                branch=ref,
+                committer=Ident(*RADA, adopted),
+            )
         )
         merged = self._to_main(g, i)
         # the tip = main[pos] + changes; the merge = main[head] + changes
@@ -610,5 +628,7 @@ def write_steps(steps: Iterable[Step], stream: Stream) -> None:
     for step in steps:
         parents = [marks[p] for p in step.parents]
         marks.append(
-            stream.commit(step.ref, parents, step.author, step.author, step.message, step.changes)
+            stream.commit(
+                step.ref, parents, step.author, step.committed_by, step.message, step.changes
+            )
         )
