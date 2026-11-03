@@ -152,7 +152,8 @@ _GROUP = re.compile(r"^(\d+)\.\s+([А-ЯІЇЄҐ][^.;:,!?]{0,100})$")
 # «Стаття N.» labels: its articles are numbered paragraphs «7. …» counted through the whole
 # statute; levels are «ЧАСТИНА I …», «Розділ 1 …» (Arabic) and unnumbered sub-headings over
 # articles; «Додаток N до Статуту …» blocks follow the last article.
-_STATUTE_TITLE = re.compile(r"^СТАТУТ\s")
+# «СТАТУТ ГАРНІЗОННОЇ …», «ДИСЦИПЛІНАРНИЙ СТАТУТ …», «СТРОЙОВИЙ СТАТУТ …»
+_STATUTE_TITLE = re.compile(r"^(?:[А-ЯІЇЄҐ’'-]+\s+)?СТАТУТ\s")
 _NUMBERED_ARTICLE = re.compile(r"^(\d+)(?:\s*-\s*(\d+))?\.\s+(\S.*)$", re.S)
 # the next article number may skip excluded articles that left no paragraph
 _MAX_ARTICLE_GAP = 15
@@ -506,15 +507,16 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
                 para, i = _heading_para(b, head, blocks, i)
                 paras.append(para)
                 continue
-            if art := _statute_article(text, last_article):
+            art = _statute_article(text, last_article)
+            if topic := _statute_topic(text, art, _next_text(blocks, i), last_article):
+                seen_structure = True
+                paras.append(Para(text, "heading", b.anchor, "topic", topic, text))
+                continue
+            if art:
                 seen_structure = True
                 number, rest, last_article = art
                 paras.append(Para(f"Стаття {number}.", "article_start", b.anchor, number=number))
                 paras.append(Para(rest, "body", b.anchor))
-                continue
-            if _is_topic(text) and (nxt := _statute_article(_next_text(blocks, i), last_article)):
-                seen_structure = True
-                paras.append(Para(text, "heading", b.anchor, "topic", nxt[0], text))
                 continue
         if art := match_article(text):
             seen_structure = True
@@ -567,6 +569,28 @@ def _heading_para(
             i += 1
     para = Para(text, "heading", b.anchor, unit_kind=unit_kind, number=number, title=htitle)
     return para, i
+
+
+def _statute_topic(
+    text: str,
+    art: tuple[str, str, tuple[int, int]] | None,
+    next_text: str,
+    last: tuple[int, int],
+) -> str | None:
+    """Number of the first article under ``text`` if it is a statute sub-heading over
+    articles: «Начальник гарнізону», or numbered on its own («1. Строї та управління ними»
+    right before article «1. Стрій - …»)."""
+    if match_heading(text):
+        return None
+    if art is None:
+        # «2. Команди …» after article 2: a numbered sub-heading that is not the next article
+        m = _NUMBERED_ARTICLE.match(text)
+        if not _is_topic(m.group(3) if m else text):
+            return None
+    if art is not None and not (_is_topic(art[1]) and len(text) <= 120):
+        return None
+    nxt = _statute_article(next_text, last)
+    return nxt[0] if nxt else None
 
 
 def _is_topic(text: str) -> bool:

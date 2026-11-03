@@ -349,3 +349,32 @@ def test_statute_mode_needs_statute_title():
         "<p>1. Перший пункт.</p><p>2. Другий пункт.</p></div></body></html>"
     )
     assert [p.kind for p in extract_paragraphs(html)] == ["body", "body"]
+
+
+def test_statute_prefixed_title_and_numbered_topics():
+    # Стройовий статут: «СТРОЙОВИЙ СТАТУТ …», «РОЗДІЛ I …» is a section, «1. Строї …» is a
+    # sub-heading with its own numbering right before article «1. Стрій - …»
+    blocks = [
+        "1. Затвердити Стройовий статут Збройних Сил України (додається).",
+        "СТРОЙОВИЙ СТАТУТ ЗБРОЙНИХ СИЛ УКРАЇНИ",
+        "РОЗДІЛ I ЗАГАЛЬНІ ПОЛОЖЕННЯ",
+        "1. Строї та управління ними",
+        "1. Стрій - розміщення військовослужбовців.",
+        "2. Шеренга - стрій.",
+        "2. Команди та обов'язки",
+        "3. Команда подається голосом.",
+    ]
+    html = (
+        '<html><head><title>Про Стройовий статут</title></head><body><div id="article">'
+        + "".join(f"<p>{b}</p>" for b in blocks)
+        + "</div></body></html>"
+    )
+    paras = extract_paragraphs(html)
+    heads = [(p.unit_kind, p.number) for p in paras if p.kind == "heading"]
+    assert heads == [("section", "I"), ("topic", "1"), ("topic", "3")]
+    assert [p.number for p in paras if p.kind == "article_start"] == ["1", "2", "3"]
+    files = render(tree_of(paras, "549-14"), Code("statute-drill", ("549-14",), "С", kind="law"))
+    assert verify_paragraphs(paras, files).ok
+    assert (
+        "laws/statute-drill/01-zahalni-polozhennia/0003-2-komandy-ta-oboviazky/art-0003.md" in files
+    )
