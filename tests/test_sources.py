@@ -30,7 +30,7 @@ def test_sources_trees_and_latest_prints_from_cache(tmp_path, fixtures_dir):
         tree = cached_tree_loader(client)(src.editions["2947-14"][0])
         assert tree.zakon_id == "2947-14" and tree.units
         prints = latest_prints([src], client)
-    assert prints == {"family": [html + "<!-- latest -->"]}
+    assert prints == {"codes/family": [html + "<!-- latest -->"]}
 
 
 def test_latest_prints_skips_repealed_codes(tmp_path):

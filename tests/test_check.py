@@ -67,7 +67,7 @@ def build(tmp_path, steps):
     return repo
 
 
-PRINTS = {"family": [EDITIONS[-1][1]]}
+PRINTS = {"codes/family": [EDITIONS[-1][1]]}
 
 
 def checks(violations):
@@ -154,7 +154,7 @@ def test_corrupted_file_is_c(tmp_path):
 def test_stale_print_is_c(tmp_path):
     steps = plan()
     repo = build(tmp_path, steps)
-    assert checks(check_repo(repo, steps, {"family": [EDITIONS[0][1]]})) == {"c"}
+    assert checks(check_repo(repo, steps, {"codes/family": [EDITIONS[0][1]]})) == {"c"}
 
 
 def test_missing_branch_is_d(tmp_path):
@@ -220,9 +220,9 @@ def test_not_a_git_repo_is_check_error(tmp_path):
 def test_code_without_files_in_main_is_c(tmp_path):
     steps = plan()
     repo = build(tmp_path, steps)
-    violations = check_repo(repo, steps, {**PRINTS, "tax": [EDITIONS[0][1]]})
+    violations = check_repo(repo, steps, {**PRINTS, "codes/tax": [EDITIONS[0][1]]})
     assert checks(violations) == {"c"}
-    assert all(v.message.startswith("tax: ") for v in violations)
+    assert all(v.message.startswith("codes/tax: ") for v in violations)
 
 
 def test_entry_into_force_dates_initial_and_earlier_editions(tmp_path):
@@ -265,7 +265,7 @@ def test_prints_of_repealed_and_two_document_codes(tmp_path):
     steps = plan_full(sources, load)
     prints = latest_prints(sources, client)
     client.close()
-    assert prints == {"admin-offences": [PART1, PART2]}  # repealed code: no print to check
+    assert prints == {"codes/admin-offences": [PART1, PART2]}  # repealed code: no print to check
     repo = build(tmp_path, steps)
     assert check_repo(repo, steps, prints) == []
     assert "codes/commercial" not in git(repo, "ls-tree", "-r", "--name-only", "main")

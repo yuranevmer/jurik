@@ -19,6 +19,7 @@ from jurik.zakon.paragraphs import EXCLUDED_WORD, NOTE, Para, norm_index
 
 RANK: dict[UnitKind, int] = {
     "final": -1,  # unnumbered «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ»: closes every level
+    "appendix": -1,  # «Додаток N» of a statute: closes every level
     "book": 0,
     "part": 1,
     "section": 2,
@@ -26,6 +27,7 @@ RANK: dict[UnitKind, int] = {
     "chapter": 4,
     "paragraph": 5,
     "group": 6,
+    "topic": 6,
 }
 
 EXCLUDED_TITLE = "Виключена"

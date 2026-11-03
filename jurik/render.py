@@ -22,6 +22,8 @@ UNIT_LABEL = {
     "chapter": "Глава",
     "paragraph": "§",
     "group": "",
+    "topic": "",
+    "appendix": "Додаток",
 }
 
 
@@ -52,11 +54,15 @@ def unit_prefix(number: str) -> str:
 
 def unit_dir(unit: Unit) -> str:
     s = slug(unit.title)
+    if unit.kind == "topic":  # numbered by its first article: "0009-nachalnyk-harnizonu"
+        return article_file(unit.number).removeprefix("art-").removesuffix(".md") + f"-{s}"
     if not unit.number:  # unnumbered final provisions: "prykintsevi-ta-perekhidni-polozhennia"
         if not s:
             raise RenderError(f"unnumbered {unit.kind} without title")
         return s
     prefix = unit_prefix(unit.number)
+    if unit.kind == "appendix":  # after the levels of the statute: "dodatok-03-<title>"
+        prefix = f"dodatok-{prefix}"
     return f"{prefix}-{s}" if s else prefix
 
 
@@ -70,7 +76,11 @@ def article_file(number: str) -> str:
 
 def unit_heading(unit: Unit) -> str:
     title = unit.title.strip()
-    if not unit.number or (unit.kind == "part" and "частина" in title.lower()):
+    if (
+        not unit.number
+        or unit.kind == "topic"
+        or (unit.kind == "part" and "частина" in title.lower())
+    ):
         return f"# {title}"
     if unit.kind == "group" or (unit.kind == "subsection" and title.endswith("ЧАСТИНА")):
         # "# 2. Повне товариство", КУпАП "# II. ОСОБЛИВА ЧАСТИНА", as in the source
@@ -157,7 +167,8 @@ def render(
 ) -> dict[str, bytes]:
     """Render one code (one or several zakon documents) to {repo path: content}.
 
-    Paths are relative to the repository root (``codes/<slug>/...``). Every structural
+    Paths are relative to the repository root (``Code.folder``: ``codes/<slug>/...`` or
+    ``laws/<slug>/...``). Every structural
     level has a ``provisions.md`` starting with its heading, so the level title survives
     even when the level holds only articles. Several trees
     (КУпАП) are merged into one folder; a file produced by two trees → ``RenderError``.
@@ -165,7 +176,7 @@ def render(
     trees = [trees] if isinstance(trees, DocTree) else list(trees)
     if not trees:
         raise RenderError(f"{code.slug}: nothing to render")
-    base = f"codes/{code.slug}"
+    base = code.folder
     files: dict[str, bytes] = {}
     for tree in trees:
         _render_items(tree.units, base, files)

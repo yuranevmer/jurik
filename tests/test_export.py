@@ -258,3 +258,31 @@ def test_cli_export_read_only_out(tmp_path):
     assert result.exit_code == 1
     assert "Error:" in result.output
     assert "Permission denied" in result.output
+
+
+def test_export_lists_codes_and_laws(tmp_path):
+    s = Stream()
+    files = {
+        ART: b"a\n",
+        META: b"zakon_id: 2947-14\n",
+        "laws/defence/art-0001.md": b"d\n",
+        "laws/defence/_meta.yaml": b"zakon_id: 1932-12\n",
+    }
+    who = Ident(*RADA, date(2002, 1, 10))
+    msg = main_msg("init", date(2002, 1, 10), "2947-14/ed20020110")
+    msg = msg.replace(
+        "Edition: 2947-14/ed20020110", "Edition: 2947-14/ed20020110\nEdition: 1932-12/ed20020110"
+    )
+    s.commit("main", [], who, who, msg, ChangeSet(modified=files))
+    repo = tmp_path / "laws"
+    run(s, repo)
+    out = tmp_path / "dataset"
+    res = export(repo, date(2003, 1, 1), out)
+    assert (res.codes, res.laws) == (["family"], ["defence"])
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert (manifest["codes"], manifest["laws"]) == (["family"], ["defence"])
+    assert manifest["editions"] == {"2947-14": "ed20020110", "1932-12": "ed20020110"}
+    result = CliRunner().invoke(
+        main, ["export", "--repo", str(repo), "--at", "2003-01-01", "--out", str(tmp_path / "o")]
+    )
+    assert "1 code(s), 1 law(s)" in result.output

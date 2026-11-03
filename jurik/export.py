@@ -48,9 +48,10 @@ class ExportError(JurikError):
 class ExportResult:
     commit: str
     in_force: date | None
-    codes: list[str]
+    codes: list[str]  # slugs of codes/<slug>
     files: int
     bills: list[str] = field(default_factory=list)  # exported bill files
+    laws: list[str] = field(default_factory=list)  # slugs of laws/<slug>
     editions: dict[str, str] = field(default_factory=dict)  # zakon_id → edYYYYMMDD
 
 
@@ -188,17 +189,22 @@ def _extract(repo: Path, rev: str, out: Path, paths: list[str] | None = None) ->
     return names
 
 
-def _zakon_ids(out: Path, codes: list[str]) -> set[str]:
-    """zakon ids named in ``codes/<slug>/_meta.yaml`` of the exported codes."""
+def _zakon_ids(out: Path, folders: list[str]) -> set[str]:
+    """zakon ids named in ``<folder>/_meta.yaml`` of the exported codes and laws."""
     ids: set[str] = set()
-    for slug in codes:
+    for folder in folders:
         try:
-            meta = yaml.safe_load((out / "codes" / slug / "_meta.yaml").read_text("utf-8"))
+            meta = yaml.safe_load((out / folder / "_meta.yaml").read_text("utf-8"))
         except (OSError, yaml.YAMLError):
             continue
         value = meta.get("zakon_id") if isinstance(meta, dict) else None
         ids.update([value] if isinstance(value, str) else value or [])
     return ids
+
+
+def _slugs(names: list[str], top: str) -> list[str]:
+    """Slugs of the ``<top>/<slug>/`` folders among the exported file ``names``."""
+    return sorted({n.split("/")[1] for n in names if n.startswith(f"{top}/") and n.count("/") > 1})
 
 
 def export(repo: Path, at: date, out: Path, *, with_bills: bool = False) -> ExportResult:
@@ -239,10 +245,11 @@ def _write(
         names = _extract(repo, sha, out)
     except RepoError as e:
         raise ExportError(str(e)) from e
-    codes = sorted({n.split("/")[1] for n in names if n.startswith("codes/") and n.count("/") > 1})
-    result = ExportResult(sha, in_force_of(commit), codes, len(names))
+    codes, laws = (_slugs(names, top) for top in ("codes", "laws"))
+    result = ExportResult(sha, in_force_of(commit), codes, len(names), laws=laws)
     # the edition of each document still in the tree (a repealed code's folder is gone)
-    exported_ids = _zakon_ids(out, codes)
+    folders = [f"codes/{s}" for s in codes] + [f"laws/{s}" for s in laws]
+    exported_ids = _zakon_ids(out, folders)
     result.editions = {z: e for z, e in latest_editions(commits).items() if z in exported_ids}
     if with_bills:
         for bill in sorted(unmerged_bills(repo), key=lambda b: (b.convocation, b.ref)):
@@ -264,6 +271,7 @@ def _write(
         "commit": sha,
         "in_force": result.in_force.isoformat() if result.in_force else None,
         "codes": codes,
+        "laws": laws,
         "editions": result.editions,
         "files": result.files,
         "sources": SOURCES,

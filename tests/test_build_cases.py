@@ -281,3 +281,71 @@ def test_kupap_range_between_split_superscripts():
     assert "у статтях 121-126, 127-1 - 128-1, частинах" in art.body
     res = verify_paragraphs(paras, render(tree, Code("admin-offences", ("80731-10",), "КУпАП")))
     assert res.ok, res.missing[:5]
+
+
+# --- statutes of the Armed Forces (laws/statute-*): articles are numbered paragraphs ---
+
+STATUTE = "550-14_ed20260606_build_fragment.html"
+GARRISON = Code("statute-garrison", ("550-14",), "Статут", kind="law")
+
+
+@pytest.fixture(scope="module")
+def statute_paras() -> list[Para]:
+    return paras_of(STATUTE)
+
+
+def test_statute_articles_are_numbered_paragraphs(statute_paras):
+    starts = [p.number for p in statute_paras if p.kind == "article_start"]
+    assert starts == ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "11-1", "12"]
+    # the enacting law's «1. Затвердити Статут …» before «СТАТУТ …» is not an article
+    first = next(i for i, p in enumerate(statute_paras) if p.kind == "article_start")
+    assert any(p.text.startswith("1. Затвердити Статут") for p in statute_paras[:first])
+    # «Стаття N.» label + the paragraph text as body, like untitled Constitution articles
+    i = next(
+        i for i, p in enumerate(statute_paras) if p.number == "9" and p.kind == "article_start"
+    )
+    assert statute_paras[i].text == "Стаття 9."
+    assert statute_paras[i + 1].text.startswith("Начальник гарнізону відповідає")
+
+
+def test_statute_levels_topics_and_appendices(statute_paras):
+    heads = [(p.unit_kind, p.number) for p in statute_paras if p.kind == "heading"]
+    assert heads[:4] == [("topic", "1"), ("part", "I"), ("section", "1"), ("topic", "7")]
+    appendices = [n for k, n in heads if k == "appendix"]
+    # «Додаток № 13 …» counts; «Додаток 1 до Порядку …» inside appendix 18 does not
+    assert appendices == ["12", "13", "14", "15", "16", "17", "18", "19"]
+    texts = [p.text for p in statute_paras]
+    assert any(t.startswith("|") and "Додаток 1 до Порядку" in t for t in texts)
+    # no article is found inside appendices («1. Для розміщення …»)
+    last_article = max(i for i, p in enumerate(statute_paras) if p.kind == "article_start")
+    first_appendix = next(i for i, p in enumerate(statute_paras) if p.unit_kind == "appendix")
+    assert last_article < first_appendix
+
+
+def test_statute_renders_complete(statute_paras):
+    tree = tree_of(statute_paras, "550-14")
+    files = render(tree, GARRISON)
+    assert verify_paragraphs(statute_paras, files).ok
+    base = "laws/statute-garrison"
+    assert f"{base}/0001-zahalni-polozhennia/art-0001.md" in files
+    topic = f"{base}/01-harnizonna-sluzhba/01-viiskovi-sluzhbovi-osoby-harnizonu"
+    head = files[f"{topic}/0009-nachalnyk-harnizonu/provisions.md"].decode()
+    assert head == "# Начальник гарнізону\n"
+    assert f"{topic}/0011-1-zastupnyk-nachalnyka-harnizonu/art-0011-1.md" in files
+    appendix = next(p for p in files if p.startswith(f"{base}/dodatok-13-"))
+    assert (
+        files[appendix]
+        .decode()
+        .startswith("# Додаток 13. ПОЛОЖЕННЯ ЗБРОЇ У ЧАТОВОГО НА ПОСТУ\n\nдо Статуту гарнізонної")
+    )
+    # the enacting law stays in the preamble
+    assert "Затвердити Статут" in files[f"{base}/preamble.md"].decode()
+
+
+def test_statute_mode_needs_statute_title():
+    # numbered paragraphs of an ordinary text without «СТАТУТ …» are never articles
+    html = (
+        '<html><head><title>Про щось</title></head><body><div id="article">'
+        "<p>1. Перший пункт.</p><p>2. Другий пункт.</p></div></body></html>"
+    )
+    assert [p.kind for p in extract_paragraphs(html)] == ["body", "body"]

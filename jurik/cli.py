@@ -273,7 +273,8 @@ def export(at_date: datetime | None, with_bills: bool, repo: Path, out: Path) ->
         res = export_dataset(repo, at, out, with_bills=with_bills)
     except (JurikError, OSError) as e:
         raise click.ClickException(str(e)) from e
-    msg = f"{out}: {res.files} file(s) of {len(res.codes)} code(s) at {res.commit[:10]}"
+    docs = f"{len(res.codes)} code(s)" + (f", {len(res.laws)} law(s)" if res.laws else "")
+    msg = f"{out}: {res.files} file(s) of {docs} at {res.commit[:10]}"
     msg += f" (In-force {res.in_force})"
     if with_bills:
         msg += f", {len(res.bills)} bill(s)"

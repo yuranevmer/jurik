@@ -92,3 +92,29 @@ def test_repealed_fields(write_registry):
     bad = write_registry('- slug: c\n  zakon_id: "1-1"\n  title: T\n  repealed: soon\n')
     with pytest.raises(ConfigError, match="repealed"):
         load_codes(bad)
+
+
+def test_kind_and_folder(write_registry):
+    path = write_registry(
+        '- slug: tax\n  zakon_id: "2755-17"\n  title: Податковий кодекс України\n'
+        '- slug: defence\n  kind: law\n  zakon_id: "1932-12"\n  title: Закон\n'
+    )
+    tax, defence = load_codes(path)
+    assert (tax.kind, tax.folder) == ("code", "codes/tax")
+    assert (defence.kind, defence.folder) == ("law", "laws/defence")
+    bad = write_registry('- slug: x\n  kind: decree\n  zakon_id: "1-1"\n  title: T\n')
+    with pytest.raises(ConfigError, match="kind"):
+        load_codes(bad)
+
+
+def test_invalid_yaml_is_config_error(write_registry):
+    path = write_registry("- slug: x\n  title_patterns: ['обов'язок']\n")
+    with pytest.raises(ConfigError, match="invalid YAML"):
+        load_codes(path)
+
+
+def test_real_registry_has_military_laws():
+    laws = {c.slug: c for c in load_codes(DEFAULT_REGISTRY) if c.kind == "law"}
+    assert len(laws) == 12
+    assert laws["military-service"].zakon_ids == ("2232-12",)
+    assert laws["military-service"].folder == "laws/military-service"

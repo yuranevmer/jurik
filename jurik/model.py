@@ -33,9 +33,21 @@ def kyiv_today() -> date:
 
 EditionKind = Literal["law", "court", "other"]
 # "final": unnumbered top-level «ПРИКІНЦЕВІ ТА ПЕРЕХІДНІ ПОЛОЖЕННЯ» (ЦК), number "";
-# "group": unlabelled numbered sub-heading inside a § («2. Повне товариство» in ЦК § 1)
+# "group": unlabelled numbered sub-heading inside a § («2. Повне товариство» in ЦК § 1);
+# statutes of the Armed Forces (see ``extract_paragraphs``): "appendix" = «Додаток N» after
+# the last article, "topic" = unnumbered sub-heading over articles («Начальник гарнізону»),
+# its number is that of its first article (for ordering only, not shown)
 UnitKind = Literal[
-    "final", "book", "part", "section", "subsection", "chapter", "paragraph", "group"
+    "final",
+    "appendix",
+    "book",
+    "part",
+    "section",
+    "subsection",
+    "chapter",
+    "paragraph",
+    "group",
+    "topic",
 ]
 LawStatus = Literal["adopted", "rejected", "withdrawn", "removed", "pending"]
 # ``status`` of a rendered code's _meta.yaml (a repealed code's folder is deleted instead)

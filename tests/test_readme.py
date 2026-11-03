@@ -27,7 +27,7 @@ def load(edition):
 
 def test_readme_content():
     text = readme_markdown([FAMILY, KUPAP, COMMERCIAL])
-    assert text.startswith("# Конституція та кодекси України з історією змін\n")
+    assert text.startswith("# Конституція, кодекси та закони України з історією змін\n")
     # codes table: folder, title, zakon links, repeal date
     assert "| `codes/family` | Сімейний кодекс України |" in text
     assert "[80731-10](https://zakon.rada.gov.ua/laws/show/80731-10), [80732-10]" in text
@@ -77,3 +77,12 @@ def test_add_readme_empty_plan_and_linear():
     steps = plan_linear([CodeSource(FAMILY, {"2947-14": [ed(date(2002, 1, 10))]})], load)
     add_readme(steps, [FAMILY])
     assert README_PATH in steps[0].changes.modified
+
+
+def test_readme_laws_table():
+    law = Code("defence", ("1932-12",), "Закон України «Про оборону України»", kind="law")
+    text = readme_markdown([FAMILY, law])
+    assert "## Закони" in text
+    assert "| `laws/defence` | Закон України «Про оборону України» |" in text
+    assert text.index("## Кодекси") < text.index("## Закони")
+    assert "## Закони" not in readme_markdown([FAMILY])

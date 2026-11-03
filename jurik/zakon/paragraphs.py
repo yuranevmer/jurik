@@ -147,6 +147,63 @@ EXCLUDED_WORD = re.compile(r"^(виключен[аоий]|виключено)\.?
 _GROUP = re.compile(r"^(\d+)\.\s+([А-ЯІЇЄҐ][^.;:,!?]{0,100})$")
 
 
+# --- statutes of the Armed Forces («Про Статут … Збройних Сил України») ---------------
+# The enacting law («1. Затвердити Статут …») is followed by the statute, which has no
+# «Стаття N.» labels: its articles are numbered paragraphs «7. …» counted through the whole
+# statute; levels are «ЧАСТИНА I …», «Розділ 1 …» (Arabic) and unnumbered sub-headings over
+# articles; «Додаток N до Статуту …» blocks follow the last article.
+_STATUTE_TITLE = re.compile(r"^СТАТУТ\s")
+_NUMBERED_ARTICLE = re.compile(r"^(\d+)(?:\s*-\s*(\d+))?\.\s+(\S.*)$", re.S)
+# the next article number may skip excluded articles that left no paragraph
+_MAX_ARTICLE_GAP = 15
+_STATUTE_PART = re.compile(r"^ЧАСТИНА\s+([IVXLCІХ]+)\b\.?\s*(.*)$", re.S)
+_STATUTE_SECTION = re.compile(r"^Розділ\s+(\d+(?:-\d+)?)\.?\s+(\S.*)$", re.I | re.S)
+# «Додаток 1 до Статуту …», «Додаток № 13 …»; «Додаток 1 до Порядку …» inside an appendix is
+# its text
+_APPENDIX = re.compile(
+    r"^[|\s]*Додаток\s+(?:№\s*)?(\d+(?:\s*-\s*\d+)?)\b\s*((?:до\s+Статуту\b)?[^|]*?)[|\s-]*$",
+    re.S,
+)
+_SENTENCE_END = ".;:,!?"
+
+
+def _statute_start(blocks: list[_Block]) -> int | None:
+    """Index of the «СТАТУТ …» title block of a document without «Стаття N.» articles."""
+    if any(match_article(b.text) for b in blocks):
+        return None
+    for i, b in enumerate(blocks):
+        if not b.is_table and _STATUTE_TITLE.match(b.text) and _is_upper(b.text):
+            return i
+    return None
+
+
+def _statute_article(text: str, last: tuple[int, int]) -> tuple[str, str, tuple[int, int]] | None:
+    """``(number, rest, key)`` if ``text`` is the next article of a statute after ``last``
+    (``(base, suffix)`` of the previous article): «8. …» or «7-1. …» after 7."""
+    m = _NUMBERED_ARTICLE.match(text)
+    if not m:
+        return None
+    key = (int(m.group(1)), int(m.group(2) or 0))
+    if not (last < key and key[0] <= last[0] + _MAX_ARTICLE_GAP):
+        return None
+    if key[1] and key[0] != last[0]:
+        return None
+    number = f"{key[0]}-{key[1]}" if key[1] else str(key[0])
+    return number, m.group(3).strip(), key
+
+
+def _statute_heading(text: str) -> tuple[UnitKind, str, str] | None:
+    if m := _STATUTE_PART.match(text):
+        title = m.group(2).strip()
+        if not title or _is_upper(title):
+            return "part", m.group(1).translate(_CYRILLIC_ROMAN).upper(), title
+    if m := _STATUTE_SECTION.match(text):
+        title = m.group(2).strip()
+        if title[0].isupper() and title[-1] not in _SENTENCE_END:
+            return "section", norm_index(m.group(1)), title
+    return None
+
+
 def _is_upper(text: str) -> bool:
     text = NOTE.sub("", text)
     return any(c.isalpha() for c in text) and text == text.upper()
@@ -400,6 +457,9 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
         titled_articles = not title.casefold().startswith("конституція")
 
     blocks = _blocks(containers[0])
+    statute = _statute_start(blocks)
+    last_article = (0, 0)  # statutes: the previous numbered article
+    in_appendix = False
     paras: list[Para] = []
     note_depth = 0
     note_open = False
@@ -420,6 +480,17 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
                 note_depth = 0
             paras.append(Para(text, "note", b.anchor))
             continue
+        # «Додаток N …» after the articles of a statute
+        if (
+            statute is not None
+            and last_article[0]
+            and (m := _APPENDIX.match(text))
+            and (not m.group(2) or m.group(2).startswith("до Статуту"))
+        ):
+            seen_structure = in_appendix = True
+            para, i = _appendix_paras(b, m, blocks, i)
+            paras += para
+            continue
         if b.is_table:
             kind = "header" if not seen_structure and _is_header_text(text, title) else "body"
             paras.append(Para(text, kind, b.anchor))
@@ -428,6 +499,23 @@ def extract_paragraphs(html: str, *, titled_articles: bool | None = None) -> lis
             # an excluded level leaves only its heading with a note; it holds no text
             paras.append(Para(text, "note", b.anchor))
             continue
+        if statute is not None and i - 1 > statute and not in_appendix:
+            if head := _statute_heading(text):
+                seen_structure = True
+                level = head[0]
+                para, i = _heading_para(b, head, blocks, i)
+                paras.append(para)
+                continue
+            if art := _statute_article(text, last_article):
+                seen_structure = True
+                number, rest, last_article = art
+                paras.append(Para(f"Стаття {number}.", "article_start", b.anchor, number=number))
+                paras.append(Para(rest, "body", b.anchor))
+                continue
+            if _is_topic(text) and (nxt := _statute_article(_next_text(blocks, i), last_article)):
+                seen_structure = True
+                paras.append(Para(text, "heading", b.anchor, "topic", nxt[0], text))
+                continue
         if art := match_article(text):
             seen_structure = True
             number, rest = art
@@ -479,6 +567,35 @@ def _heading_para(
             i += 1
     para = Para(text, "heading", b.anchor, unit_kind=unit_kind, number=number, title=htitle)
     return para, i
+
+
+def _is_topic(text: str) -> bool:
+    """An unnumbered statute sub-heading: one short line without a sentence end."""
+    return (
+        len(text) <= 200
+        and "\n" not in text
+        and text[0].isupper()
+        and text[-1] not in _SENTENCE_END
+        and not _NOTE_START.match(text)
+    )
+
+
+def _appendix_paras(
+    b: _Block, m: re.Match[str], blocks: list[_Block], i: int
+) -> tuple[list[Para], int]:
+    """«Додаток N до Статуту … (статті 26, 59)» + an upper-case title line: the heading
+    «Додаток N. TITLE» and the rest of the caption as the first line of its text."""
+    number = norm_index(m.group(1))
+    caption = " ".join(m.group(2).replace("|", " ").split())
+    title = ""
+    if i < len(blocks) and not blocks[i].is_table and _is_upper(blocks[i].text):
+        title = blocks[i].text
+        i += 1
+    text = f"Додаток {number}. {title}" if title else f"Додаток {number}."
+    paras = [Para(text, "heading", b.anchor, "appendix", number, title)]
+    if caption:
+        paras.append(Para(caption, "body", b.anchor))
+    return paras, i
 
 
 def _group_para(b: _Block, blocks: list[_Block], i: int) -> Para | None:

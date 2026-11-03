@@ -14,6 +14,7 @@ from jurik.errors import JurikError
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REGISTRY = PROJECT_ROOT / "codes.yaml"
 REQUIRED_FIELDS = ("slug", "zakon_id", "title")
+KINDS = ("code", "law")
 
 
 class ConfigError(JurikError):
@@ -28,6 +29,12 @@ class Code:
     title_patterns: tuple[str, ...] = ()
     repealed: date | None = None  # the code lost force on this day (folder is deleted)
     repealed_by: str = ""  # nreg of the repealing law
+    kind: str = "code"  # "code" → codes/<slug>/, "law" → laws/<slug>/
+
+    @property
+    def folder(self) -> str:
+        """Folder of the document in the built repository."""
+        return f"{self.kind}s/{self.slug}"
 
 
 @dataclass(frozen=True)
@@ -93,6 +100,9 @@ def parse_codes(data: object) -> list[Code]:
             not isinstance(repealed, date) or isinstance(repealed, datetime)
         ):
             raise ConfigError(f"code {slug!r}: repealed must be a date YYYY-MM-DD")
+        kind = entry.get("kind", "code")
+        if kind not in KINDS:
+            raise ConfigError(f"code {slug!r}: kind must be one of {', '.join(KINDS)}")
         codes.append(
             Code(
                 slug=slug,
@@ -101,6 +111,7 @@ def parse_codes(data: object) -> list[Code]:
                 title_patterns=tuple(patterns),
                 repealed=repealed,
                 repealed_by=str(entry.get("repealed_by") or "").strip().lower(),
+                kind=kind,
             )
         )
     return codes
@@ -108,7 +119,11 @@ def parse_codes(data: object) -> list[Code]:
 
 def load_codes(path: Path = DEFAULT_REGISTRY) -> list[Code]:
     with path.open(encoding="utf-8") as f:
-        return parse_codes(yaml.safe_load(f))
+        try:
+            data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ConfigError(f"{path}: invalid YAML: {e}") from e
+    return parse_codes(data)
 
 
 def get_code(codes: list[Code], slug: str) -> Code:

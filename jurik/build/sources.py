@@ -62,7 +62,8 @@ def cached_tree_loader(client: ZakonClient) -> TreeLoader:
 
 
 def latest_prints(sources: list[CodeSource], client: ZakonClient) -> dict[str, list[str]]:
-    """Print html of the latest edition of each document of every code still in force."""
+    """Print html of the latest edition of each document of every code still in force,
+    keyed by ``Code.folder``."""
     out: dict[str, list[str]] = {}
     for src in sources:
         if src.code.repealed:
@@ -71,5 +72,5 @@ def latest_prints(sources: list[CodeSource], client: ZakonClient) -> dict[str, l
         for zakon_id in src.code.zakon_ids:
             if eds := src.editions.get(zakon_id):
                 htmls.append(client.cached_edition(zakon_id, eds[-1].stamp))
-        out[src.code.slug] = htmls
+        out[src.code.folder] = htmls
     return out

@@ -115,14 +115,15 @@ def _main_files(repo: Path, prefix: str) -> dict[str, bytes]:
 
 
 def check_text(repo: Path, prints: Mapping[str, Sequence[str]]) -> list[Violation]:
-    """(c) ``codes/<slug>/`` of ``main`` matches the print html of its latest edition."""
+    """(c) each folder of ``main`` (``codes/<slug>``, ``laws/<slug>``) matches the print html
+    of its latest edition."""
     out: list[Violation] = []
-    for slug, html in prints.items():
-        files = _main_files(repo, f"codes/{slug}/")
+    for folder, html in prints.items():
+        files = _main_files(repo, f"{folder}/")
         result = verify_edition(files, html)
         if not result.ok:
-            out.append(Violation("c", f"{slug}: {result.summary()}"))
-            out += [Violation("c", f"{slug}: {d}") for d in result.diffs]
+            out.append(Violation("c", f"{folder}: {result.summary()}"))
+            out += [Violation("c", f"{folder}: {d}") for d in result.diffs]
     return out
 
 
@@ -188,8 +189,8 @@ def check_repo(
 ) -> list[Violation]:
     """All invariants of the repository at ``repo_path`` built from ``steps``.
 
-    ``prints`` maps the slug of every code still in force to the print html of the latest
-    edition of each of its documents (a list for КУпАП).
+    ``prints`` maps the folder (``Code.folder``) of every code or law still in force to the
+    print html of the latest edition of each of its documents (a list for КУпАП).
     """
     commits = main_log(repo_path)
     violations = [

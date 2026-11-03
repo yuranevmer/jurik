@@ -121,3 +121,66 @@
   repealed: 2025-08-28
   repealed_by: "4196-20"
   title_patterns: ['господарськ\w*(\s+(та|і|й)\s+[\w-]+(\s+[\w-]+)?)?\s+кодекс']
+
+# Laws (kind: law, folder laws/<slug>/): military service, added 2026-11-03; titles and
+# numbers from data.rada.gov.ua/laws/card/<id>.json (nazva, orgdat, n_vlas).
+- slug: military-service
+  kind: law
+  zakon_id: "2232-12"
+  title: Закон України «Про військовий обов'язок і військову службу»  # verified: від 25.03.1992 № 2232-XII
+  title_patterns: ['про\s+військовий\s+обов''язок']
+- slug: mobilization
+  kind: law
+  zakon_id: "3543-12"
+  title: Закон України «Про мобілізаційну підготовку та мобілізацію»  # verified: від 21.10.1993 № 3543-XII
+  title_patterns: ['про\s+мобілізаційну\s+підготовку']
+- slug: servicemen-protection
+  kind: law
+  zakon_id: "2011-12"
+  title: Закон України «Про соціальний і правовий захист військовослужбовців та членів їх сімей»  # verified: від 20.12.1991 № 2011-XII
+  title_patterns: ['про\s+соціальний\s+і\s+правовий\s+захист\s+військовослужбовців']
+- slug: martial-law
+  kind: law
+  zakon_id: "389-19"
+  title: Закон України «Про правовий режим воєнного стану»  # verified: від 12.05.2015 № 389-VIII
+  title_patterns: ['про\s+правовий\s+режим\s+воєнного\s+стану']
+- slug: defence
+  kind: law
+  zakon_id: "1932-12"
+  title: Закон України «Про оборону України»  # verified: від 06.12.1991 № 1932-XII
+  title_patterns: ['про\s+оборону\s+україни']
+- slug: armed-forces
+  kind: law
+  zakon_id: "1934-12"
+  title: Закон України «Про Збройні Сили України»  # verified: від 06.12.1991 № 1934-XII
+  title_patterns: ['про\s+збройні\s+сили\s+україни']
+- slug: war-veterans
+  kind: law
+  zakon_id: "3551-12"
+  title: Закон України «Про статус ветеранів війни, гарантії їх соціального захисту»  # verified: від 22.10.1993 № 3551-XII
+  title_patterns: ['про\s+статус\s+ветеранів\s+війни']
+- slug: alternative-service
+  kind: law
+  zakon_id: "1975-12"
+  title: Закон України «Про альтернативну (невійськову) службу»  # verified: від 12.12.1991 № 1975-XII
+  title_patterns: ['про\s+альтернативну\s+\(невійськову\)\s+службу']
+- slug: statute-internal
+  kind: law
+  zakon_id: "548-14"
+  title: Закон України «Про Статут внутрішньої служби Збройних Сил України»  # verified: від 24.03.1999 № 548-XIV
+  title_patterns: ['статут\w*\s+внутрішньої\s+служби']
+- slug: statute-disciplinary
+  kind: law
+  zakon_id: "551-14"
+  title: Закон України «Про Дисциплінарний статут Збройних Сил України»  # verified: від 24.03.1999 № 551-XIV
+  title_patterns: ['дисциплінарн\w*\s+статут']
+- slug: statute-drill
+  kind: law
+  zakon_id: "549-14"
+  title: Закон України «Про Стройовий статут Збройних Сил України»  # verified: від 24.03.1999 № 549-XIV
+  title_patterns: ['стройов\w*\s+статут']
+- slug: statute-garrison
+  kind: law
+  zakon_id: "550-14"
+  title: Закон України «Про Статут гарнізонної та вартової служб Збройних Сил України»  # verified: від 24.03.1999 № 550-XIV
+  title_patterns: ['статут\w*\s+гарнізонної\s+та\s+вартової\s+служб']
