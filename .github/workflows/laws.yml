@@ -1,0 +1,72 @@
+# Daily build of the laws repository (README.md: «CI»).
+# The download cache (cache/: zakon editions, Rada open data, bill texts) is kept between
+# runs in the Actions cache, so a day only downloads what is new; the repository is rebuilt
+# from it (deterministically) and pushed to LAWS_REPO by scripts/push-laws.sh.
+name: laws
+
+on:
+  schedule:
+    - cron: "30 2 * * *" # 04:30/05:30 Kyiv time
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write # keepalive: re-enable this schedule (GitHub turns it off after 60 idle days)
+
+concurrency:
+  group: laws
+  cancel-in-progress: false
+
+env:
+  LAWS_REPO: git@github.com:yuranevmer/jurik-laws.git
+  CURRENT_CONVOCATION: 9
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # the first run (empty cache) downloads ~3000 editions and ~7400 bill texts; it may not
+    # finish in time: the cache is saved anyway and the next run continues from there
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install
+        run: uv sync --frozen
+
+      - name: Restore download cache
+        uses: actions/cache/restore@v4
+        with:
+          path: cache
+          key: jurik-cache-${{ github.run_id }}
+          restore-keys: jurik-cache-
+
+      - name: Fetch new editions
+        run: uv run jurik fetch
+
+      - name: Rada open data
+        run: |
+          uv run jurik rada
+          uv run jurik rada --convocation "$CURRENT_CONVOCATION" --refetch
+
+      - name: Build
+        run: uv run jurik build --out build/laws
+
+      - name: Save download cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: cache
+          key: jurik-cache-${{ github.run_id }}
+
+      - name: Push
+        env:
+          LAWS_DEPLOY_KEY: ${{ secrets.LAWS_DEPLOY_KEY }}
+        run: scripts/push-laws.sh
+
+      - name: Keep the schedule alive
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/laws.yml/enable"

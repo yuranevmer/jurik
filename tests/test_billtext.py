@@ -1,9 +1,12 @@
+from datetime import date
+
 import httpx
 import pytest
 
 from jurik.model import BillRef
 from jurik.rada.billtext import (
     IX_DOWNLOAD_URL,
+    BillDoc,
     BillTexts,
     billinfo_documents,
     csv_documents,
@@ -188,13 +191,62 @@ def test_fetch_ix_chunked(tmp_path, rada_cache, bill_fixture):
     assert (rada_cache / "rada" / "bills" / "9" / "15112-д.pdf").read_bytes() == data
 
 
-def test_fetch_failure_not_cached(tmp_path, rada_cache):
+def test_fetch_failure_is_remembered_for_a_week(tmp_path, rada_cache, bill_fixture):
     messages = []
-    texts, _ = make_texts(tmp_path, rada_cache, lambda r: httpx.Response(404))
+    status = [404]
+    texts, calls = make_texts(
+        tmp_path, rada_cache, lambda r: httpx.Response(status[0], content=bill_fixture("rtf"))
+    )
     texts._echo = messages.append
-    assert texts.fetch(BillRef(5, "0903")) is None
-    assert texts.cached(BillRef(5, "0903")) is None
+    texts.today = date(2026, 11, 1)
+    bill = BillRef(5, "0903")
+    assert texts.fetch(bill) is None
+    assert texts.cached(bill) is None
     assert "HTTP 404" in messages[0]
+    marker = rada_cache / "rada" / "bills" / "5" / "0903.failed"
+    assert marker.read_text().startswith("2026-11-01 ")
+    # not asked again within a week (also by a new BillTexts: the marker is on disk)
+    texts.today = date(2026, 11, 7)
+    assert texts.fetch(bill) is None
+    assert len(calls) == 1
+    # retried after a week; a success replaces the marker
+    status[0] = 200
+    texts.today = date(2026, 11, 8)
+    assert "Сімейного кодексу" in texts.fetch(bill)
+    assert len(calls) == 2
+    assert not marker.exists()
+    assert texts.cached(bill).name == "0903.rtf"
+
+
+def test_unreachable_host_is_skipped_for_the_rest_of_the_run(tmp_path, rada_cache):
+    def handler(request):
+        raise httpx.ConnectError("nodename nor servname provided")
+
+    texts, calls = make_texts(tmp_path, rada_cache, handler)
+    texts._docs[5] = {
+        "1": BillDoc(url="http://gone.invalid/a"),
+        "2": BillDoc(url="http://gone.invalid/b"),
+        "3": BillDoc(url="http://other.invalid/c"),
+    }
+    assert texts.fetch(BillRef(5, "1")) is None
+    assert len(calls) == 1
+    # another bill on the same host: no request at all; another host is still asked
+    assert texts.fetch(BillRef(5, "2")) is None
+    assert len(calls) == 1
+    assert texts.fetch(BillRef(5, "3")) is None
+    assert len(calls) == 2
+
+
+def test_failure_marker_with_bad_date_is_ignored(tmp_path, rada_cache, bill_fixture):
+    texts, calls = make_texts(
+        tmp_path, rada_cache, lambda r: httpx.Response(200, content=bill_fixture("rtf"))
+    )
+    folder = rada_cache / "rada" / "bills" / "5"
+    folder.mkdir(parents=True)
+    (folder / "0903.failed").write_text("garbage")
+    assert texts.cached(BillRef(5, "0903")) is None
+    assert texts.fetch(BillRef(5, "0903"))
+    assert len(calls) == 1
 
 
 def test_fetch_doc_is_cached_but_unavailable(tmp_path, rada_cache, bill_fixture):
@@ -245,7 +297,8 @@ def ix_texts(tmp_path, rada_cache, handler):
 
 def assert_nothing_cached(rada_cache):
     folder = rada_cache / "rada" / "bills" / "9"
-    assert not folder.exists() or list(folder.iterdir()) == []
+    # only failure markers, no text
+    assert not folder.exists() or all(f.suffix == ".failed" for f in folder.iterdir())
 
 
 def test_fetch_ix_size_mismatch(tmp_path, rada_cache, bill_fixture):

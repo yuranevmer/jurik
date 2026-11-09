@@ -199,6 +199,27 @@ bills/<созыв>/<номер>.md          только в ветках bill/* 
 без merge), 0 нарушений (a–e). Подробно:
 `docs/pilot-build.md`, приёмка там же; пилот парсера: `docs/pilot-parse.md`.
 
+## CI: ежедневная сборка на GitHub
+
+- `.github/workflows/laws.yml` раз в сутки (02:30 UTC, а также вручную, «Run workflow»):
+  `jurik fetch` (новые редакции и обновлённые карточки), `jurik rada` (недостающие данные) и
+  `jurik rada --convocation 9 --refetch` (текущий созыв), `jurik build` (все законопроекты,
+  без `--bills-limit`), затем `scripts/push-laws.sh` пушит все ветки в
+  [`yuranevmer/jurik-laws`](https://github.com/yuranevmer/jurik-laws).
+- Кеш загрузок (`cache/`) хранится между запусками в Actions cache, поэтому скачивается
+  только новое. Первый запуск с пустым кешем скачивает всё (часы); если он не уложится в
+  лимит, кеш всё равно сохраняется и следующий запуск продолжит.
+- Сборка детерминирована: неизменившиеся коммиты сохраняют хеши, обычный день = fast-forward
+  `main`. Если редакция опубликована с опозданием и встаёт раньше вершины `main` (порядок по
+  `In-force:`), хвост `main` переписывается и push идёт с `--force` (в логе warning).
+  Ветки, исчезнувшие из сборки, удаляются (`--prune`).
+- При нарушениях `check_repo` сборка падает и push не выполняется.
+- Доступ: deploy key с правом записи в `jurik-laws`, приватная часть в секрете
+  `LAWS_DEPLOY_KEY` репозитория `jurik`. Целевой репозиторий: `LAWS_REPO` в workflow.
+- С началом X созыва поменять `CURRENT_CONVOCATION` в workflow и `LAST` в
+  `jurik/convocation.py`.
+- `.github/workflows/ci.yml`: `ruff` и `pytest` на каждый push в `main` и PR.
+
 ## Известные ограничения
 
 - **Ветки не принятых законопроектов ограничены 500** (`--bills-limit 500`: самые ранние,

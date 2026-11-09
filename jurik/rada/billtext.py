@@ -23,9 +23,10 @@ import re
 import zipfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 import docx
 from docx.table import Table
@@ -35,7 +36,7 @@ from pypdf import PdfReader
 from striprtf.striprtf import rtf_to_text
 
 from jurik.http import write_atomic
-from jurik.model import BillRef
+from jurik.model import BillRef, kyiv_today
 from jurik.rada.client import BILLINFO, RadaClient, RadaError, cached_file
 from jurik.rada.index import norm_bill_number, parse_day, read_billinfo, read_csv
 
@@ -286,6 +287,12 @@ def to_markdown(data: bytes) -> str | None:
 # --- downloading --------------------------------------------------------------------------
 
 
+# a failed download leaves ``<stem>.failed`` («YYYY-MM-DD reason»): the bill is not asked for
+# again until this many days have passed (old convocations' document host can be gone for
+# good, and a daily build must not spend minutes on retries for every such bill)
+FAILED_SUFFIX = ".failed"
+RETRY_FAILED_AFTER = timedelta(days=7)
+
 _UNSAFE_STEM = re.compile(r"[/\\\x00-\x1f\x7f]")
 
 
@@ -319,6 +326,9 @@ class BillTexts:
         self._echo = echo or (lambda _msg: None)
         self._docs: dict[int, dict[str, BillDoc]] = {}
         self._no_docs: set[int] = set()  # convocations whose document list is unavailable
+        self._files: dict[int, dict[str, Path]] = {}  # convocation -> stem -> cached file
+        self._down: set[str] = set()  # hosts that did not answer in this run
+        self.today = kyiv_today()
 
     def _http(self) -> RadaClient:
         if self._client is None:
@@ -345,14 +355,34 @@ class BillTexts:
                 self._docs[n] = csv_documents(self.cache, n)
         return self._docs[n].get(norm_bill_number(bill.number))
 
+    def _listing(self, convocation: int) -> dict[str, Path]:
+        if convocation not in self._files:
+            folder = self.dir / str(convocation)
+            files: dict[str, Path] = {}
+            if folder.is_dir():
+                for p in sorted(folder.iterdir()):
+                    if p.suffix and p.suffix != FAILED_SUFFIX:
+                        files.setdefault(p.stem, p)
+            self._files[convocation] = files
+        return self._files[convocation]
+
     def cached(self, bill: BillRef) -> Path | None:
-        folder = self.dir / str(bill.convocation)
-        stem = file_stem(bill.number)
-        if folder.is_dir():
-            for p in sorted(folder.iterdir()):
-                if p.stem == stem and p.suffix:
-                    return p
-        return None
+        return self._listing(bill.convocation).get(file_stem(bill.number))
+
+    def _failed_path(self, bill: BillRef) -> Path:
+        return self.dir / str(bill.convocation) / f"{file_stem(bill.number)}{FAILED_SUFFIX}"
+
+    def _recently_failed(self, bill: BillRef) -> bool:
+        try:
+            day = date.fromisoformat(self._failed_path(bill).read_text("utf-8")[:10])
+        except (OSError, ValueError):
+            return False
+        return self.today - day < RETRY_FAILED_AFTER
+
+    def _record_failure(self, bill: BillRef, url: str, error: str) -> None:
+        if "transport error" in error or "timeout" in error:
+            self._down.add(urlsplit(url).netloc)
+        write_atomic(self._failed_path(bill), f"{self.today.isoformat()} {error}\n".encode())
 
     def download(self, doc: BillDoc) -> bytes:
         http = self._http()
@@ -388,12 +418,16 @@ class BillTexts:
                 self._no_docs.add(bill.convocation)
                 self._echo(f"warning: bill texts of convocation {bill.convocation}: {e}")
                 return None
-            if doc is None:
+            if doc is None or self._recently_failed(bill):
+                return None
+            url = doc.url or IX_DOWNLOAD_URL
+            if urlsplit(url).netloc in self._down:
                 return None
             try:
                 data = self.download(doc)
             except RadaError as e:
                 self._echo(f"warning: bill {bill.convocation}/{bill.number}: {e}")
+                self._record_failure(bill, url, str(e))
                 return None
             fmt = detect(data)
             if fmt is None:
@@ -401,6 +435,8 @@ class BillTexts:
                 return None
             path = self.dir / str(bill.convocation) / f"{file_stem(bill.number)}.{fmt}"
             write_atomic(path, data)
+            self._listing(bill.convocation)[file_stem(bill.number)] = path
+            self._failed_path(bill).unlink(missing_ok=True)
         text = to_markdown(path.read_bytes())
         if text is None:
             self._echo(f"note: bill {bill.convocation}/{bill.number}: no text from {path.name}")
