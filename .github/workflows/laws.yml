@@ -35,6 +35,15 @@ jobs:
       - name: Install
         run: uv sync --frozen
 
+      # data.rada.gov.ua may not answer some networks: fail in a minute, not after hours of
+      # retries on every card
+      - name: Check sources are reachable
+        run: |
+          for url in https://data.rada.gov.ua/laws/card/2947-14.json https://itd.rada.gov.ua/; do
+            curl -sS -o /dev/null -m 30 -A OpenData -w "%{http_code} $url\n" "$url" \
+              || { echo "::error::$url is not reachable from this runner"; exit 1; }
+          done
+
       - name: Restore download cache
         uses: actions/cache/restore@v4
         with:
