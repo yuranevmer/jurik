@@ -59,3 +59,23 @@ def test_write_atomic(tmp_path):
     write_atomic(path, b"two")
     assert path.read_bytes() == b"two"
     assert [p.name for p in path.parent.iterdir()] == ["b.bin"]
+
+
+def test_proxy_from_environment(monkeypatch):
+    # CI routes requests through an SSH SOCKS tunnel given in ALL_PROXY (socks5h)
+    monkeypatch.setenv("ALL_PROXY", "socks5h://127.0.0.1:1")
+    calls = []
+    http = ThrottledHttp(
+        user_agent="t",
+        error=RuntimeError,
+        min_interval=0,
+        retries=0,
+        backoff=0,
+        timeout=2,
+        transport=None,
+        sleep=calls.append,
+        clock=lambda: 0.0,
+    )
+    with pytest.raises(RuntimeError, match="transport error"):
+        http.get("https://data.rada.gov.ua/")
+    http.close()

@@ -214,6 +214,13 @@ bills/<созыв>/<номер>.md          только в ветках bill/* 
   `In-force:`), хвост `main` переписывается и push идёт с `--force` (в логе warning).
   Ветки, исчезнувшие из сборки, удаляются (`--prune`).
 - При нарушениях `check_repo` сборка падает и push не выполняется.
+- `data.rada.gov.ua` не отвечает GitHub-раннерам (и многим VPS вне Украины), поэтому
+  запросы идут через SSH-туннель (SOCKS, `ALL_PROXY=socks5h://…`) на VPS, которому Рада
+  отвечает. На VPS: `sudo bash scripts/setup-proxy-user.sh '<публичный ключ>'` (пользователь
+  `jurik-proxy`: только туннели к хостам Рады). Секреты `jurik`: `PROXY_HOST`
+  (`[user@]host`), `PROXY_PORT` (если не 22), `PROXY_SSH_KEY`, `PROXY_KNOWN_HOSTS`
+  (`ssh-keyscan <host>`). Без `PROXY_HOST` туннель не открывается. Шаг «Check sources are
+  reachable» падает за минуту, если Рада недоступна.
 - Доступ: deploy key с правом записи в `jurik-laws`, приватная часть в секрете
   `LAWS_DEPLOY_KEY` репозитория `jurik`. Целевой репозиторий: `LAWS_REPO` в workflow.
 - С началом X созыва поменять `CURRENT_CONVOCATION` в workflow и `LAST` в

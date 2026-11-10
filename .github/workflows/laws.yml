@@ -20,6 +20,10 @@ concurrency:
 env:
   LAWS_REPO: git@github.com:yuranevmer/jurik-laws.git
   CURRENT_CONVOCATION: 9
+  # data.rada.gov.ua does not answer GitHub runners: requests go through an SSH SOCKS
+  # tunnel to a VPS that it answers (scripts/setup-proxy-user.sh); empty = no tunnel
+  PROXY_HOST: ${{ secrets.PROXY_HOST }} # [user@]host, user jurik-proxy by default
+  PROXY_PORT: ${{ secrets.PROXY_PORT }}
 
 jobs:
   build:
@@ -34,6 +38,22 @@ jobs:
 
       - name: Install
         run: uv sync --frozen
+
+      - name: Open the proxy tunnel
+        if: env.PROXY_HOST != ''
+        env:
+          PROXY_SSH_KEY: ${{ secrets.PROXY_SSH_KEY }}
+          PROXY_KNOWN_HOSTS: ${{ secrets.PROXY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$PROXY_SSH_KEY" > ~/.ssh/proxy_key && chmod 600 ~/.ssh/proxy_key
+          printf '%s\n' "$PROXY_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+          target="$PROXY_HOST"; [[ "$target" == *@* ]] || target="jurik-proxy@$target"
+          ssh -f -N -D 127.0.0.1:1080 -p "${PROXY_PORT:-22}" -i ~/.ssh/proxy_key \
+            -o IdentitiesOnly=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=6 "$target"
+          # httpx (jurik) and curl take the proxy from ALL_PROXY; socks5h: DNS on the VPS
+          echo "ALL_PROXY=socks5h://127.0.0.1:1080" >> "$GITHUB_ENV"
 
       # data.rada.gov.ua may not answer some networks: fail in a minute, not after hours of
       # retries on every card
