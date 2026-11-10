@@ -206,26 +206,30 @@ bills/<созыв>/<номер>.md          только в ветках bill/* 
   `jurik rada --convocation 9 --refetch` (текущий созыв), `jurik build` (все законопроекты,
   без `--bills-limit`), затем `scripts/push-laws.sh` пушит все ветки в
   [`yuranevmer/jurik-laws`](https://github.com/yuranevmer/jurik-laws).
-- Кеш загрузок (`cache/`) хранится между запусками в Actions cache, поэтому скачивается
-  только новое. Первый запуск с пустым кешем скачивает всё (часы); если он не уложится в
-  лимит, кеш всё равно сохраняется и следующий запуск продолжит.
+- `data.rada.gov.ua` не отвечает GitHub-раннерам (и многим серверам вне Украины), поэтому
+  workflow идёт на self-hosted runner (метка `jurik`) на VPS, которому Рада отвечает.
+  Установка на VPS (Linux, root): `sudo bash scripts/setup-runner.sh <token>`, токен:
+  `gh api -X POST repos/yuranevmer/jurik/actions/runners/registration-token -q .token`
+  (действует час). Скрипт сначала проверяет, что Рада отвечает `200`, затем ставит runner
+  как сервис systemd под пользователем `jurik-runner`.
+- Кеш загрузок лежит на диске runner'а (`~jurik-runner/jurik-cache`, или `JURIK_CACHE`),
+  поэтому скачивается только новое. Первый запуск с пустым кешем качает всё (часы); чтобы
+  не ждать, можно залить локальный кеш: `rsync -a cache/ jurik-runner@<vps>:jurik-cache/`.
 - Сборка детерминирована: неизменившиеся коммиты сохраняют хеши, обычный день = fast-forward
   `main`. Если редакция опубликована с опозданием и встаёт раньше вершины `main` (порядок по
   `In-force:`), хвост `main` переписывается и push идёт с `--force` (в логе warning).
   Ветки, исчезнувшие из сборки, удаляются (`--prune`).
-- При нарушениях `check_repo` сборка падает и push не выполняется.
-- `data.rada.gov.ua` не отвечает GitHub-раннерам (и многим VPS вне Украины), поэтому
-  запросы идут через SSH-туннель (SOCKS, `ALL_PROXY=socks5h://…`) на VPS, которому Рада
-  отвечает. На VPS: `sudo bash scripts/setup-proxy-user.sh '<публичный ключ>'` (пользователь
-  `jurik-proxy`: только туннели к хостам Рады). Секреты `jurik`: `PROXY_HOST`
-  (`[user@]host`), `PROXY_PORT` (если не 22), `PROXY_SSH_KEY`, `PROXY_KNOWN_HOSTS`
-  (`ssh-keyscan <host>`). Без `PROXY_HOST` туннель не открывается. Шаг «Check sources are
+- При нарушениях `check_repo` сборка падает и push не выполняется; шаг «Check sources are
   reachable» падает за минуту, если Рада недоступна.
 - Доступ: deploy key с правом записи в `jurik-laws`, приватная часть в секрете
   `LAWS_DEPLOY_KEY` репозитория `jurik`. Целевой репозиторий: `LAWS_REPO` в workflow.
+- Безопасность self-hosted runner'а в публичном репозитории: workflow из PR чужих форков
+  требуют ручного одобрения (Settings → Actions → «Require approval for all external
+  contributors»), иначе PR мог бы запустить свой код на VPS.
 - С началом X созыва поменять `CURRENT_CONVOCATION` в workflow и `LAST` в
   `jurik/convocation.py`.
-- `.github/workflows/ci.yml`: `ruff` и `pytest` на каждый push в `main` и PR.
+- `.github/workflows/ci.yml`: `ruff` и `pytest` на GitHub-раннерах на каждый push в `main`
+  и PR.
 
 ## Известные ограничения
 
