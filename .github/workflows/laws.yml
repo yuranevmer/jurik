@@ -49,7 +49,8 @@ jobs:
       - name: Check sources are reachable
         run: |
           for url in https://data.rada.gov.ua/laws/card/2947-14.json https://itd.rada.gov.ua/; do
-            curl -sS -o /dev/null -m 30 -A OpenData -w "%{http_code} $url\n" "$url" \
+            curl -sS -o /dev/null -m 30 --retry 3 --retry-all-errors -A OpenData \
+              -w "%{http_code} $url\n" "$url" \
               || { echo "::error::$url is not reachable from this runner"; exit 1; }
           done
 

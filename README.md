@@ -207,14 +207,17 @@ bills/<созыв>/<номер>.md          только в ветках bill/* 
   без `--bills-limit`), затем `scripts/push-laws.sh` пушит все ветки в
   [`yuranevmer/jurik-laws`](https://github.com/yuranevmer/jurik-laws).
 - `data.rada.gov.ua` не отвечает GitHub-раннерам (и многим серверам вне Украины), поэтому
-  workflow идёт на self-hosted runner (метка `jurik`) на VPS, которому Рада отвечает.
-  Установка на VPS (Linux, root): `sudo bash scripts/setup-runner.sh <token>`, токен:
+  workflow идёт на self-hosted runner (метка `jurik`) на машине, которой Рада отвечает:
+  сейчас это `beelink` (Ubuntu, дома), runner `beelink-jurik`. Установка (без root, от имени
+  пользователя): `bash scripts/setup-runner.sh <token>`, токен:
   `gh api -X POST repos/yuranevmer/jurik/actions/runners/registration-token -q .token`
-  (действует час). Скрипт сначала проверяет, что Рада отвечает `200`, затем ставит runner
-  как сервис systemd под пользователем `jurik-runner`.
-- Кеш загрузок лежит на диске runner'а (`~jurik-runner/jurik-cache`, или `JURIK_CACHE`),
+  (действует час). Скрипт проверяет, что Рада отвечает `200`, ставит runner в
+  `~/actions-runner-jurik` как пользовательский сервис systemd `actions-runner-jurik` и
+  включает linger (старт при загрузке без входа). Логи: `journalctl --user -u
+  actions-runner-jurik`.
+- Кеш загрузок лежит на диске runner'а (`~/jurik-cache`, или `JURIK_CACHE`),
   поэтому скачивается только новое. Первый запуск с пустым кешем качает всё (часы); чтобы
-  не ждать, можно залить локальный кеш: `rsync -a cache/ jurik-runner@<vps>:jurik-cache/`.
+  не ждать, можно залить локальный кеш: `rsync -a cache/ <host>:jurik-cache/`.
 - Сборка детерминирована: неизменившиеся коммиты сохраняют хеши, обычный день = fast-forward
   `main`. Если редакция опубликована с опозданием и встаёт раньше вершины `main` (порядок по
   `In-force:`), хвост `main` переписывается и push идёт с `--force` (в логе warning).
@@ -225,7 +228,7 @@ bills/<созыв>/<номер>.md          только в ветках bill/* 
   `LAWS_DEPLOY_KEY` репозитория `jurik`. Целевой репозиторий: `LAWS_REPO` в workflow.
 - Безопасность self-hosted runner'а в публичном репозитории: workflow из PR чужих форков
   требуют ручного одобрения (Settings → Actions → «Require approval for all external
-  contributors»), иначе PR мог бы запустить свой код на VPS.
+  contributors»), иначе PR мог бы запустить свой код на машине runner'а.
 - С началом X созыва поменять `CURRENT_CONVOCATION` в workflow и `LAST` в
   `jurik/convocation.py`.
 - `.github/workflows/ci.yml`: `ruff` и `pytest` на GitHub-раннерах на каждый push в `main`
