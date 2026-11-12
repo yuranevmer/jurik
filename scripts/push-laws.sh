@@ -14,6 +14,8 @@
 #      LAWS_DEPLOY_KEY (optional: private SSH deploy key with write access),
 #      PUSH_BATCH (refs per push, default 300).
 set -euo pipefail
+# sort and comm must agree on the order (a UTF-8 locale sorts "/" and "-" differently)
+export LC_ALL=C
 
 repo="${LAWS_REPO:?set LAWS_REPO, e.g. git@github.com:owner/jurik-laws.git}"
 dir="${LAWS_DIR:-build/laws}"
@@ -51,8 +53,8 @@ fi
 comm -23 "$work/local" "$work/remote" | awk '$1 != "refs/heads/main" {print "+" $1 ":" $1}' \
   > "$work/update"
 # branches to delete: on the remote, not in the build
-cut -d' ' -f1 "$work/local" > "$work/local-names"
-cut -d' ' -f1 "$work/remote" | comm -23 - "$work/local-names" | awk '{print ":" $1}' \
+cut -d' ' -f1 "$work/local" | sort > "$work/local-names"
+cut -d' ' -f1 "$work/remote" | sort | comm -23 - "$work/local-names" | awk '{print ":" $1}' \
   > "$work/delete"
 
 push_batches() {  # $1: refspec file, $2: label
