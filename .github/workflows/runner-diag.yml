@@ -1,0 +1,23 @@
+# Manual diagnostics of the self-hosted runner (lost-communication failures of `laws`).
+name: runner-diag
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: [self-hosted, linux, jurik]
+    timeout-minutes: 10
+    steps:
+      - name: Memory, load, disk
+        run: |
+          uptime; free -h; swapon --show || true; df -h "$HOME"
+          ps -eo pid,rss,comm --sort=-rss | head -12
+      - name: OOM kills and runner restarts (last 3 days)
+        run: |
+          journalctl -k --since "-3 days" --no-pager 2>/dev/null | grep -iE "out of memory|oom|killed process" | tail -30 || true
+          journalctl --user -u actions-runner-jurik --since "-3 days" --no-pager | grep -vE "Running job|Succeeded" | tail -40 || true
+          last -x reboot | head -5 || true
