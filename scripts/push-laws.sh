@@ -12,14 +12,29 @@
 #
 # Env: LAWS_REPO (git URL or path of the target), LAWS_DIR (default build/laws),
 #      LAWS_DEPLOY_KEY (optional: private SSH deploy key with write access),
-#      PUSH_BATCH (refs per push, default 300).
+#      PUSH_BATCH (refs per push, default 100), PUSH_TRIES (attempts per push, default 3).
+#
+# The runner's network drops now and then: every push is retried, a batch that still fails
+# does not stop the others, and the script fails at the end (the next run sends the rest).
 set -euo pipefail
 # sort and comm must agree on the order (a UTF-8 locale sorts "/" and "-" differently)
 export LC_ALL=C
 
 repo="${LAWS_REPO:?set LAWS_REPO, e.g. git@github.com:owner/jurik-laws.git}"
 dir="${LAWS_DIR:-build/laws}"
-batch="${PUSH_BATCH:-300}"
+batch="${PUSH_BATCH:-100}"
+tries="${PUSH_TRIES:-3}"
+failed=0
+
+push() {  # git push with retries; the arguments are refspecs
+  local i
+  for ((i = 1; i <= tries; i++)); do
+    git push --force --quiet "$repo" "$@" && return 0
+    echo "push failed (attempt $i of $tries)" >&2
+    [[ "$i" -lt "$tries" ]] && sleep $((i * 15))
+  done
+  return 1
+}
 
 if [[ -n "${LAWS_DEPLOY_KEY:-}" ]]; then
   key="$(mktemp)"
@@ -47,7 +62,10 @@ elif git cat-file -e "$old^{commit}" 2>/dev/null && git merge-base --is-ancestor
 else
   echo "::warning::main history rewritten (late edition or changed metadata): $old -> $new"
 fi
-[[ "$old" == "$new" ]] || git push --force --quiet "$repo" "refs/heads/main:refs/heads/main"
+if [[ "$old" != "$new" ]] && ! push "refs/heads/main:refs/heads/main"; then
+  echo "::error::could not push main"
+  exit 1
+fi
 
 # branches to create or move: local lines that are not identical on the remote
 comm -23 "$work/local" "$work/remote" | awk '$1 != "refs/heads/main" {print "+" $1 ":" $1}' \
@@ -62,12 +80,22 @@ push_batches() {  # $1: refspec file, $2: label
   n="$(wc -l < "$1" | tr -d ' ')"
   [[ "$n" -gt 0 ]] || return 0
   split -l "$batch" "$1" "$work/chunk-"
+  local chunk line refs bad=0
   for chunk in "$work"/chunk-*; do
-    xargs git push --quiet "$repo" < "$chunk"
+    refs=()
+    while IFS= read -r line; do refs+=("$line"); done < "$chunk"
+    push "${refs[@]}" || bad=$((bad + ${#refs[@]}))
     rm -f "$chunk"
   done
-  echo "$2: $n branches"
+  echo "$2: $((n - bad)) of $n branches"
+  if [[ "$bad" -gt 0 ]]; then
+    echo "::warning::$bad branches not $2 (network); the next run retries them"
+    failed=1
+  fi
 }
 push_batches "$work/update" "pushed"
 push_batches "$work/delete" "deleted"
+if [[ "$failed" == 1 ]]; then
+  exit 1
+fi
 echo "remote now has $(wc -l < "$work/local" | tr -d ' ') branches"
