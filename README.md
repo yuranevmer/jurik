@@ -201,7 +201,7 @@ bills/<созыв>/<номер>.md          только в ветках bill/* 
 
 ## CI: ежедневная сборка на GitHub
 
-- `.github/workflows/laws.yml` раз в сутки (02:30 UTC, а также вручную, «Run workflow»):
+- `.github/workflows/laws.yml` дважды в сутки (02:30 и 14:30 UTC, а также вручную, «Run workflow»):
   `jurik fetch` (новые редакции и обновлённые карточки), `jurik rada` (недостающие данные) и
   `jurik rada --convocation 9 --refetch` (текущий созыв), `jurik build` (все законопроекты,
   без `--bills-limit`), затем `scripts/push-laws.sh` пушит все ветки в

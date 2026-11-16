@@ -1,4 +1,4 @@
-# Daily build of the laws repository (README.md: «CI»).
+# Twice-daily build of the laws repository (README.md: «CI»).
 # Runs on a self-hosted runner (label "jurik", scripts/setup-runner.sh) on a VPS that
 # data.rada.gov.ua answers (it does not answer GitHub-hosted runners). The download cache
 # lives on the runner's disk (JURIK_CACHE), so a day only downloads what is new; the
@@ -8,7 +8,9 @@ name: laws
 
 on:
   schedule:
+    # Twice a day: a run lost to a runner reboot is retried within hours, not a day.
     - cron: "30 2 * * *" # 04:30/05:30 Kyiv time
+    - cron: "30 14 * * *" # 16:30/17:30 Kyiv time
   workflow_dispatch:
 
 permissions:
