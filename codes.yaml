@@ -184,3 +184,157 @@
   zakon_id: "550-14"
   title: Закон України «Про Статут гарнізонної та вартової служб Збройних Сил України»  # verified: від 24.03.1999 № 550-XIV
   title_patterns: ['статут\w*\s+гарнізонної\s+та\s+вартової\s+служб']
+
+# Laws added 2026-11-17 (state, rights, business, social, anti-corruption, security); each
+# zakon_id checked against data.rada.gov.ua/laws/card/<id>.json (nazva, orgdat, n_vlas,
+# status 5 = in force).
+- slug: rada-rules
+  kind: law
+  zakon_id: "1861-17"
+  title: Закон України «Про Регламент Верховної Ради України»  # verified: від 10.02.2010 № 1861-VI
+  title_patterns: ['регламент\w*\s+верховної\s+ради']
+- slug: cabinet
+  kind: law
+  zakon_id: "794-18"
+  title: Закон України «Про Кабінет Міністрів України»  # verified: від 27.02.2014 № 794-VII
+  title_patterns: ['про\s+кабінет\s+міністрів\s+україни']
+- slug: local-government
+  kind: law
+  zakon_id: "280/97-ВР"
+  title: Закон України «Про місцеве самоврядування в Україні»  # verified: від 21.05.1997 № 280/97-ВР
+  title_patterns: ['про\s+місцеве\s+самоврядування\s+в\s+україні']
+- slug: judiciary
+  kind: law
+  zakon_id: "1402-19"
+  title: Закон України «Про судоустрій і статус суддів»  # verified: від 02.06.2016 № 1402-VIII
+  title_patterns: ['про\s+судоустрій\s+і\s+статус\s+суддів']
+- slug: constitutional-court
+  kind: law
+  zakon_id: "2136-19"
+  title: Закон України «Про Конституційний Суд України»  # verified: від 13.07.2017 № 2136-VIII
+  title_patterns: ['про\s+конституційний\s+суд\s+україни']
+- slug: prosecution
+  kind: law
+  zakon_id: "1697-18"
+  title: Закон України «Про прокуратуру»  # verified: від 14.10.2014 № 1697-VII
+  title_patterns: ['про\s+прокуратуру']
+- slug: police
+  kind: law
+  zakon_id: "580-19"
+  title: Закон України «Про Національну поліцію»  # verified: від 02.07.2015 № 580-VIII
+  title_patterns: ['про\s+національну\s+поліцію']
+- slug: citizenship
+  kind: law
+  zakon_id: "2235-14"
+  title: Закон України «Про громадянство України»  # verified: від 18.01.2001 № 2235-III
+  title_patterns: ['про\s+громадянство\s+україни']
+- slug: civil-service
+  kind: law
+  zakon_id: "889-19"
+  title: Закон України «Про державну службу»  # verified: від 10.12.2015 № 889-VIII
+  title_patterns: ['про\s+державну\s+службу']
+- slug: personal-data
+  kind: law
+  zakon_id: "2297-17"
+  title: Закон України «Про захист персональних даних»  # verified: від 01.06.2010 № 2297-VI
+  title_patterns: ['про\s+захист\s+персональних\s+даних']
+- slug: public-information
+  kind: law
+  zakon_id: "2939-17"
+  title: Закон України «Про доступ до публічної інформації»  # verified: від 13.01.2011 № 2939-VI
+  title_patterns: ['про\s+доступ\s+до\s+публічної\s+інформації']
+- slug: citizens-appeals
+  kind: law
+  zakon_id: "393/96-ВР"
+  title: Закон України «Про звернення громадян»  # verified: від 02.10.1996 № 393/96-ВР
+  title_patterns: ['про\s+звернення\s+громадян']
+- slug: consumer-protection
+  kind: law
+  zakon_id: "1023-12"
+  title: Закон України «Про захист прав споживачів»  # verified: від 12.05.1991 № 1023-XII
+  title_patterns: ['про\s+захист\s+прав\s+споживачів']
+- slug: administrative-procedure
+  kind: law
+  zakon_id: "2073-20"
+  title: Закон України «Про адміністративну процедуру»  # verified: від 17.02.2022 № 2073-IX
+  title_patterns: ['про\s+адміністративну\s+процедуру']
+- slug: state-registration
+  kind: law
+  zakon_id: "755-15"
+  title: Закон України «Про державну реєстрацію юридичних осіб, фізичних осіб - підприємців та громадських формувань»  # verified: від 15.05.2003 № 755-IV
+  title_patterns: ['про\s+державну\s+реєстрацію\s+юридичних\s+осіб']
+- slug: llc
+  kind: law
+  zakon_id: "2275-19"
+  title: Закон України «Про товариства з обмеженою та додатковою відповідальністю»  # verified: від 06.02.2018 № 2275-VIII
+  title_patterns: ['про\s+товариства\s+з\s+обмеженою\s+та\s+додатковою\s+відповідальністю']
+- slug: joint-stock-companies
+  kind: law
+  zakon_id: "2465-20"
+  title: Закон України «Про акціонерні товариства»  # verified: від 27.07.2022 № 2465-IX
+  title_patterns: ['про\s+акціонерні\s+товариства']
+- slug: licensing
+  kind: law
+  zakon_id: "222-19"
+  title: Закон України «Про ліцензування видів господарської діяльності»  # verified: від 02.03.2015 № 222-VIII
+  title_patterns: ['про\s+ліцензування\s+видів\s+господарської\s+діяльності']
+- slug: public-procurement
+  kind: law
+  zakon_id: "922-19"
+  title: Закон України «Про публічні закупівлі»  # verified: від 25.12.2015 № 922-VIII
+  title_patterns: ['про\s+публічні\s+закупівлі']
+- slug: currency
+  kind: law
+  zakon_id: "2473-19"
+  title: Закон України «Про валюту і валютні операції»  # verified: від 21.06.2018 № 2473-VIII
+  title_patterns: ['про\s+валюту\s+і\s+валютні\s+операції']
+- slug: pension-insurance
+  kind: law
+  zakon_id: "1058-15"
+  title: Закон України «Про загальнообов'язкове державне пенсійне страхування»  # verified: від 09.07.2003 № 1058-IV
+  title_patterns: ['про\s+загальнообов[''’]язкове\s+державне\s+пенсійне\s+страхування']
+- slug: education
+  kind: law
+  zakon_id: "2145-19"
+  title: Закон України «Про освіту»  # verified: від 05.09.2017 № 2145-VIII
+  title_patterns: ['про\s+освіту(?!\s+\w)', 'закон\w*\s+україни\s+["«]про\s+освіту["»]']
+- slug: higher-education
+  kind: law
+  zakon_id: "1556-18"
+  title: Закон України «Про вищу освіту»  # verified: від 01.07.2014 № 1556-VII
+  title_patterns: ['про\s+вищу\s+освіту']
+- slug: corruption-prevention
+  kind: law
+  zakon_id: "1700-18"
+  title: Закон України «Про запобігання корупції»  # verified: від 14.10.2014 № 1700-VII
+  title_patterns: ['про\s+запобігання\s+корупції']
+- slug: nabu
+  kind: law
+  zakon_id: "1698-18"
+  title: Закон України «Про Національне антикорупційне бюро України»  # verified: від 14.10.2014 № 1698-VII
+  title_patterns: ['про\s+національне\s+антикорупційне\s+бюро\s+україни']
+- slug: national-security
+  kind: law
+  zakon_id: "2469-19"
+  title: Закон України «Про національну безпеку України»  # verified: від 21.06.2018 № 2469-VIII
+  title_patterns: ['про\s+національну\s+безпеку\s+україни']
+- slug: national-resistance
+  kind: law
+  zakon_id: "1702-20"
+  title: Закон України «Про основи національного спротиву»  # verified: від 16.07.2021 № 1702-IX
+  title_patterns: ['про\s+основи\s+національного\s+спротиву']
+- slug: national-guard
+  kind: law
+  zakon_id: "876-18"
+  title: Закон України «Про Національну гвардію України»  # verified: від 13.03.2014 № 876-VII
+  title_patterns: ['про\s+національну\s+гвардію\s+україни']
+- slug: border-guard
+  kind: law
+  zakon_id: "661-15"
+  title: Закон України «Про Державну прикордонну службу України»  # verified: від 03.04.2003 № 661-IV
+  title_patterns: ['про\s+державну\s+прикордонну\s+службу\s+україни']
+- slug: sbu
+  kind: law
+  zakon_id: "2229-12"
+  title: Закон України «Про Службу безпеки України»  # verified: від 25.03.1992 № 2229-XII
+  title_patterns: ['про\s+службу\s+безпеки\s+україни']

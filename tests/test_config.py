@@ -115,6 +115,6 @@ def test_invalid_yaml_is_config_error(write_registry):
 
 def test_real_registry_has_military_laws():
     laws = {c.slug: c for c in load_codes(DEFAULT_REGISTRY) if c.kind == "law"}
-    assert len(laws) == 12
+    assert len(laws) == 42
     assert laws["military-service"].zakon_ids == ("2232-12",)
     assert laws["military-service"].folder == "laws/military-service"
